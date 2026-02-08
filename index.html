@@ -76,43 +76,32 @@ function playTone(freq, dur, type="sine", vol=0.05) {
 }
 
 // =====================================================
-// BIOMES
+// BIOMES + COLOR PROGRESSION
 // =====================================================
 const BIOMES = [
-  { skyTop:"#1b1e3c", skyBottom:"#3a3f7a", plantHue:160, structure:"#2a2d4a" },
-  { skyTop:"#3b1126", skyBottom:"#7a2a4a", plantHue:330, structure:"#4a1f32" },
-  { skyTop:"#0f2d3a", skyBottom:"#2fa4b8", plantHue:190, structure:"#163f4a" },
-  { skyTop:"#3a2a10", skyBottom:"#a87a2f", plantHue:45,  structure:"#5a4218" },
-  { skyTop:"#120f1f", skyBottom:"#3f2fa8", plantHue:280, structure:"#241c4a" }
+  { skyTop:"#1b1e3c", skyBottom:"#3a3f7a", plantHue:160 },
+  { skyTop:"#3b1126", skyBottom:"#7a2a4a", plantHue:330 },
+  { skyTop:"#0f2d3a", skyBottom:"#2fa4b8", plantHue:190 },
+  { skyTop:"#3a2a10", skyBottom:"#a87a2f", plantHue:45  },
+  { skyTop:"#120f1f", skyBottom:"#3f2fa8", plantHue:280 }
 ];
 
-function currentBiome() {
-  return BIOMES[Math.floor((level - 1) / 5) % BIOMES.length];
-}
-
-// =====================================================
-// COLOR UNLOCKS
-// =====================================================
 const SUIT_COLORS = [
-  "#00ffd5", // default
+  "#00ffd5",
   "#ff9ad5",
   "#ffd966",
   "#7dffd5",
-  "#b79cff"
+  "#b79cff",
+  "#ffb86c",
+  "#9cff8a"
 ];
 
-let unlockedColors = 1;
-let currentColorIndex = 0;
+function currentBiome() {
+  return BIOMES[(level - 1) % BIOMES.length];
+}
 
-function updateColorUnlock() {
-  const target = Math.min(
-    Math.floor((level - 1) / 5) + 1,
-    SUIT_COLORS.length
-  );
-  if (target > unlockedColors) {
-    unlockedColors = target;
-    currentColorIndex = unlockedColors - 1;
-  }
+function currentSuitColor() {
+  return SUIT_COLORS[(level - 1) % SUIT_COLORS.length];
 }
 
 // =====================================================
@@ -132,7 +121,8 @@ const player = {
   y: canvas.height / 2,
   r: 12,
   vy: 0,
-  maxVy: 6
+  maxVy: 6,
+  trail: []
 };
 
 let obstacles = [];
@@ -143,13 +133,14 @@ let spawnTimer = 0;
 // =====================================================
 let particles = [];
 
-function spawnThruster(x, y, dir) {
-  for (let i = 0; i < 10; i++) {
+function spawnThruster(x, y, dir, color) {
+  for (let i = 0; i < 8; i++) {
     particles.push({
       x, y,
       vx: (Math.random() - 0.5) * 1.2,
       vy: dir * (3 + Math.random() * 2),
-      life: 22
+      life: 22,
+      color
     });
   }
 }
@@ -165,11 +156,11 @@ function flip() {
 
   gravity *= -1;
 
-  // Thruster always from LEFT-side jetpack
   spawnThruster(
     player.x - 18,
     player.y + (gravity === 1 ? 10 : -10),
-    gravity
+    gravity,
+    currentSuitColor()
   );
 
   playTone(520, 0.05, "square", 0.03);
@@ -191,11 +182,11 @@ function restartLevel() {
   player.vy = 0;
   obstacles = [];
   spawnTimer = 0;
+  player.trail = [];
 }
 
 function nextLevel() {
   level++;
-  updateColorUnlock();
   levelTarget += 15;
   worldSpeed += 0.35;
   player.maxVy += 0.3;
@@ -205,7 +196,7 @@ function nextLevel() {
 }
 
 // =====================================================
-// BACKGROUND + FOREGROUND PLANTS
+// BACKGROUND
 // =====================================================
 function drawBackground() {
   const b = currentBiome();
@@ -214,53 +205,57 @@ function drawBackground() {
   grad.addColorStop(1, b.skyBottom);
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  ctx.fillStyle = b.structure;
-  for (let i = 0; i < 6; i++) {
-    const x = (i * 300 + level * -40) % (canvas.width + 300);
-    ctx.beginPath();
-    ctx.moveTo(x, canvas.height);
-    ctx.lineTo(x + 60, canvas.height - 120);
-    ctx.lineTo(x + 120, canvas.height);
-    ctx.fill();
-  }
-}
-
-function drawForegroundPlants() {
-  const b = currentBiome();
-  for (let i = 0; i < 14; i++) {
-    const x = (i * 180 + level * -80) % (canvas.width + 200);
-    ctx.strokeStyle = `hsla(${b.plantHue},80%,65%,0.8)`;
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(x, canvas.height);
-    ctx.quadraticCurveTo(x + 12, canvas.height - 50, x + 6, canvas.height - 100);
-    ctx.stroke();
-  }
 }
 
 // =====================================================
-// ICON ASTRONAUT + FIXED JETPACK
+// ASTRONAUT + JETPACK
 // =====================================================
 function drawAstronaut(x, y, size, flipped) {
-  ctx.save();
+  const suitColor = currentSuitColor();
 
-  // --- JETPACK (ALWAYS LEFT, NEVER FLIPS SIDES) ---
-  ctx.translate(x - size * 0.6, y);
+  // ---------- GLOW (LEVEL 5+) ----------
+  if (level >= 5) {
+    ctx.save();
+    ctx.globalAlpha = 0.35;
+    ctx.shadowColor = suitColor;
+    ctx.shadowBlur = 25;
+    ctx.fillStyle = suitColor;
+    ctx.beginPath();
+    ctx.arc(x, y, size * 0.9, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // ---------- TRAIL (LEVEL 5+) ----------
+  if (level >= 5) {
+    player.trail.push({ x, y, life: 18 });
+    if (player.trail.length > 20) player.trail.shift();
+
+    player.trail.forEach(p => {
+      ctx.globalAlpha = p.life / 18 * 0.4;
+      ctx.fillStyle = suitColor;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+      ctx.fill();
+      p.life--;
+    });
+    ctx.globalAlpha = 1;
+    player.trail = player.trail.filter(p => p.life > 0);
+  }
+
+  // ---------- JETPACK (FIXED LEFT) ----------
   ctx.fillStyle = "#444";
   ctx.beginPath();
-  ctx.roundRect(-size * 0.2, -size * 0.35, size * 0.4, size * 0.7, 8);
+  ctx.roundRect(x - size * 1.1, y - size * 0.4, size * 0.5, size * 0.8, 8);
   ctx.fill();
 
-  ctx.restore();
-
-  // --- ASTRONAUT BODY (FLIPS) ---
+  // ---------- ASTRONAUT ----------
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(flipped ? Math.PI : 0);
 
   // Body
-  ctx.fillStyle = SUIT_COLORS[currentColorIndex];
+  ctx.fillStyle = suitColor;
   ctx.beginPath();
   ctx.roundRect(-size * 0.25, -size * 0.05, size * 0.5, size * 0.6, 10);
   ctx.fill();
@@ -337,9 +332,9 @@ function update() {
   }
 
   // Thrusters
-  ctx.fillStyle = "#ffd27d";
   particles.forEach(p => {
     ctx.globalAlpha = p.life / 22;
+    ctx.fillStyle = p.color;
     ctx.fillRect(p.x, p.y, 2, 2);
     p.x += p.vx;
     p.y += p.vy;
@@ -349,7 +344,6 @@ function update() {
   particles = particles.filter(p => p.life > 0);
 
   drawAstronaut(player.x, player.y, player.r * 2, gravity === -1);
-  drawForegroundPlants();
 
   // Walls
   ctx.fillStyle = "#222";
@@ -366,7 +360,7 @@ function update() {
 
   if (levelFlash > 0) {
     levelFlash--;
-    ctx.fillStyle = "#00ffd5";
+    ctx.fillStyle = currentSuitColor();
     ctx.font = "28px monospace";
     ctx.textAlign = "center";
     ctx.fillText("LEVEL COMPLETE", canvas.width / 2, canvas.height / 2);

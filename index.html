@@ -7,7 +7,7 @@
 <style>
   body {
     margin: 0;
-    background: #0b0b0b;
+    background: #000;
     overflow: hidden;
     touch-action: manipulation;
   }
@@ -76,6 +76,21 @@ function playTone(freq, dur, type="sine", vol=0.05) {
 }
 
 // =====================================================
+// BIOMES (EVERY 5 LEVELS)
+// =====================================================
+const BIOMES = [
+  { skyTop: "#1b1e3c", skyBottom: "#3a3f7a", plantHue: 160, structure: "#2a2d4a" },
+  { skyTop: "#3b1126", skyBottom: "#7a2a4a", plantHue: 330, structure: "#4a1f32" },
+  { skyTop: "#0f2d3a", skyBottom: "#2fa4b8", plantHue: 190, structure: "#163f4a" },
+  { skyTop: "#3a2a10", skyBottom: "#a87a2f", plantHue: 45,  structure: "#5a4218" },
+  { skyTop: "#120f1f", skyBottom: "#3f2fa8", plantHue: 280, structure: "#241c4a" }
+];
+
+function currentBiome() {
+  return BIOMES[Math.floor((level - 1) / 5) % BIOMES.length];
+}
+
+// =====================================================
 // GAME STATE
 // =====================================================
 let gravity = 1;
@@ -99,15 +114,14 @@ let obstacles = [];
 let spawnTimer = 0;
 
 // =====================================================
-// THRUSTER PARTICLES
+// THRUSTERS
 // =====================================================
 let particles = [];
 
 function spawnThruster(x, y, dir) {
   for (let i = 0; i < 8; i++) {
     particles.push({
-      x,
-      y,
+      x, y,
       vx: (Math.random() - 0.5) * 1.4,
       vy: dir * (2.5 + Math.random() * 1.5),
       life: 20
@@ -120,27 +134,18 @@ function spawnThruster(x, y, dir) {
 // =====================================================
 function flip() {
   audioCtx.resume();
+  if (!musicStarted) { startMusic(); musicStarted = true; }
 
-  if (!musicStarted) {
-    startMusic();
-    musicStarted = true;
-  }
-
-  if (!alive) {
-    restartLevel();
-    duckMusic(0.25);
-    return;
-  }
+  if (!alive) { restartLevel(); duckMusic(0.25); return; }
 
   gravity *= -1;
-  spawnThruster(player.x - 10, player.y + (gravity === 1 ? -6 : 6), gravity);
+  spawnThruster(player.x - 12, player.y + (gravity === 1 ? -6 : 6), gravity);
   playTone(520, 0.05, "square", 0.03);
 }
 
 window.addEventListener("mousedown", flip);
 window.addEventListener("touchstart", e => {
-  e.preventDefault();
-  flip();
+  e.preventDefault(); flip();
 }, { passive: false });
 
 // =====================================================
@@ -167,98 +172,76 @@ function nextLevel() {
 }
 
 // =====================================================
-// ALIEN PLANET BACKGROUND
+// BACKGROUND (BIOME-AWARE)
 // =====================================================
-const structures = Array.from({ length: 8 }, () => ({
-  x: Math.random() * canvas.width,
-  h: 80 + Math.random() * 140
-}));
-
-const plants = Array.from({ length: 14 }, () => ({
-  x: Math.random() * canvas.width,
-  h: 40 + Math.random() * 80,
-  glow: Math.random()
-}));
-
 function drawBackground() {
-  // --- Sky gradient ---
+  const b = currentBiome();
   const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
-  grad.addColorStop(0, `hsl(${220 + level * 2}, 40%, 18%)`);
-  grad.addColorStop(1, `hsl(${260 + level * 2}, 45%, 28%)`);
+  grad.addColorStop(0, b.skyTop);
+  grad.addColorStop(1, b.skyBottom);
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // --- Distant structures ---
-  ctx.fillStyle = "rgba(30,30,40,0.6)";
-  structures.forEach(s => {
+  ctx.fillStyle = b.structure;
+  for (let i = 0; i < 6; i++) {
+    const x = (i * 300 + level * -40) % (canvas.width + 300);
     ctx.beginPath();
-    ctx.moveTo(s.x, canvas.height);
-    ctx.lineTo(s.x + 40, canvas.height - s.h);
-    ctx.lineTo(s.x + 80, canvas.height);
-    ctx.closePath();
+    ctx.moveTo(x, canvas.height);
+    ctx.lineTo(x + 60, canvas.height - 120);
+    ctx.lineTo(x + 120, canvas.height);
     ctx.fill();
+  }
 
-    s.x -= worldSpeed * 0.1;
-    if (s.x < -100) s.x = canvas.width + Math.random() * 200;
-  });
-
-  // --- Alien plants ---
-  plants.forEach(p => {
-    ctx.strokeStyle = `hsla(${140 + p.glow * 80},70%,60%,0.6)`;
-    ctx.lineWidth = 2;
+  for (let i = 0; i < 12; i++) {
+    const x = (i * 200 + level * -60) % (canvas.width + 200);
+    ctx.strokeStyle = `hsla(${b.plantHue},70%,60%,0.6)`;
     ctx.beginPath();
-    ctx.moveTo(p.x, canvas.height);
-    ctx.quadraticCurveTo(
-      p.x + 10,
-      canvas.height - p.h / 2,
-      p.x + 5,
-      canvas.height - p.h
-    );
+    ctx.moveTo(x, canvas.height);
+    ctx.quadraticCurveTo(x + 10, canvas.height - 40, x + 5, canvas.height - 80);
     ctx.stroke();
-
-    ctx.fillStyle = `hsla(${160 + p.glow * 60},80%,65%,0.7)`;
-    ctx.beginPath();
-    ctx.arc(p.x + 5, canvas.height - p.h, 4, 0, Math.PI * 2);
-    ctx.fill();
-
-    p.x -= worldSpeed * 0.25;
-    if (p.x < -50) p.x = canvas.width + Math.random() * 200;
-  });
+  }
 }
 
 // =====================================================
-// POLISHED ASTRONAUT
+// CHIBI ASTRONAUT (FULL BODY)
 // =====================================================
 function drawAstronaut(x, y, size, flipped) {
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(flipped ? Math.PI : 0);
 
-  ctx.fillStyle = "#444";
-  ctx.beginPath();
-  ctx.roundRect(-size * 0.65, -size * 0.15, size * 0.32, size * 0.6, 6);
-  ctx.fill();
+  // Legs
+  ctx.fillStyle = "#ddd";
+  ctx.fillRect(-6, size * 0.55, 6, 8);
+  ctx.fillRect(2, size * 0.55, 6, 8);
 
+  // Body
   ctx.fillStyle = "#00ffd5";
   ctx.beginPath();
-  ctx.roundRect(-size * 0.35, -size * 0.05, size * 0.7, size * 0.85, 8);
+  ctx.roundRect(-size * 0.35, -size * 0.05, size * 0.7, size * 0.75, 8);
   ctx.fill();
 
-  const helmetGrad = ctx.createRadialGradient(
-    -size * 0.1, -size * 0.55, size * 0.1,
-    0, -size * 0.45, size * 0.5
-  );
-  helmetGrad.addColorStop(0, "#ffffff");
-  helmetGrad.addColorStop(1, "#dcdcdc");
+  // Arms
+  ctx.fillStyle = "#ccc";
+  ctx.fillRect(-size * 0.55, size * 0.15, 10, 6);
+  ctx.fillRect(size * 0.45, size * 0.15, 10, 6);
 
-  ctx.fillStyle = helmetGrad;
+  // Backpack
+  ctx.fillStyle = "#444";
   ctx.beginPath();
-  ctx.arc(0, -size * 0.45, size * 0.42, 0, Math.PI * 2);
+  ctx.roundRect(-size * 0.65, 0, size * 0.3, size * 0.5, 6);
   ctx.fill();
 
-  ctx.fillStyle = "#1a1a1a";
+  // Helmet
+  ctx.fillStyle = "#eee";
   ctx.beginPath();
-  ctx.arc(0.12 * size, -size * 0.48, size * 0.24, Math.PI * 0.15, Math.PI * 1.85);
+  ctx.arc(0, -size * 0.45, size * 0.45, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Visor
+  ctx.fillStyle = "#111";
+  ctx.beginPath();
+  ctx.arc(size * 0.1, -size * 0.45, size * 0.25, Math.PI * 0.2, Math.PI * 1.8);
   ctx.fill();
 
   ctx.restore();
@@ -278,14 +261,13 @@ function spawnObstacle() {
 }
 
 // =====================================================
-// GAME LOOP
+// LOOP
 // =====================================================
 function update() {
   drawBackground();
 
   if (alive) {
     score += 0.02;
-
     player.vy += gravity * 0.45;
     player.vy = Math.max(-player.maxVy, Math.min(player.vy, player.maxVy));
     player.y += player.vy;
@@ -300,27 +282,17 @@ function update() {
       o.x -= worldSpeed;
       if (
         player.x + player.r > o.x &&
-        player.x - player.r < o.x + o.width
+        player.x - player.r < o.x + o.width &&
+        (player.y - player.r < o.gapY ||
+         player.y + player.r > o.gapY + o.gap)
       ) {
-        if (
-          player.y - player.r < o.gapY ||
-          player.y + player.r > o.gapY + o.gap
-        ) {
-          alive = false;
-          playTone(140, 0.3, "sawtooth", 0.07);
-          duckMusic(0.08);
-        }
+        alive = false;
+        playTone(140, 0.3, "sawtooth", 0.07);
+        duckMusic(0.08);
       }
     }
 
     obstacles = obstacles.filter(o => o.x + o.width > 0);
-
-    if (player.y < -30 || player.y > canvas.height + 30) {
-      alive = false;
-      playTone(140, 0.3, "sawtooth", 0.07);
-      duckMusic(0.08);
-    }
-
     if (score >= levelTarget) nextLevel();
   }
 
@@ -340,24 +312,16 @@ function update() {
 
   // Walls
   ctx.fillStyle = "#222";
-  for (let o of obstacles) {
+  obstacles.forEach(o => {
     ctx.fillRect(o.x, 0, o.width, o.gapY);
     ctx.fillRect(o.x, o.gapY + o.gap, o.width, canvas.height);
-  }
+  });
 
   // UI
   ctx.fillStyle = "#aaa";
   ctx.font = "16px monospace";
   ctx.fillText(`LEVEL ${level}`, 20, 24);
   ctx.fillText(`PROGRESS ${score.toFixed(1)} / ${levelTarget}`, 20, 44);
-
-  if (!alive) {
-    ctx.fillStyle = "#fff";
-    ctx.font = "22px monospace";
-    ctx.textAlign = "center";
-    ctx.fillText("TAP TO RETRY LEVEL", canvas.width / 2, canvas.height / 2);
-    ctx.textAlign = "left";
-  }
 
   if (levelFlash > 0) {
     levelFlash--;

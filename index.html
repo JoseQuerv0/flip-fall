@@ -76,30 +76,23 @@ function playTone(freq, dur, type="sine", vol=0.05) {
 }
 
 // =====================================================
-// BIOMES + COLOR PROGRESSION
+// BIOMES + COLORS
 // =====================================================
 const BIOMES = [
-  { skyTop:"#1b1e3c", skyBottom:"#3a3f7a", plantHue:160 },
-  { skyTop:"#3b1126", skyBottom:"#7a2a4a", plantHue:330 },
-  { skyTop:"#0f2d3a", skyBottom:"#2fa4b8", plantHue:190 },
-  { skyTop:"#3a2a10", skyBottom:"#a87a2f", plantHue:45  },
-  { skyTop:"#120f1f", skyBottom:"#3f2fa8", plantHue:280 }
+  { skyTop:"#1b1e3c", skyBottom:"#3a3f7a", plantHue:160, structure:"#2a2d4a" },
+  { skyTop:"#3b1126", skyBottom:"#7a2a4a", plantHue:330, structure:"#4a1f32" },
+  { skyTop:"#0f2d3a", skyBottom:"#2fa4b8", plantHue:190, structure:"#163f4a" },
+  { skyTop:"#3a2a10", skyBottom:"#a87a2f", plantHue:45,  structure:"#5a4218" },
+  { skyTop:"#120f1f", skyBottom:"#3f2fa8", plantHue:280, structure:"#241c4a" }
 ];
 
 const SUIT_COLORS = [
-  "#00ffd5",
-  "#ff9ad5",
-  "#ffd966",
-  "#7dffd5",
-  "#b79cff",
-  "#ffb86c",
-  "#9cff8a"
+  "#00ffd5","#ff9ad5","#ffd966","#7dffd5","#b79cff","#ffb86c","#9cff8a"
 ];
 
 function currentBiome() {
   return BIOMES[(level - 1) % BIOMES.length];
 }
-
 function currentSuitColor() {
   return SUIT_COLORS[(level - 1) % SUIT_COLORS.length];
 }
@@ -127,23 +120,7 @@ const player = {
 
 let obstacles = [];
 let spawnTimer = 0;
-
-// =====================================================
-// THRUSTERS
-// =====================================================
 let particles = [];
-
-function spawnThruster(x, y, dir, color) {
-  for (let i = 0; i < 8; i++) {
-    particles.push({
-      x, y,
-      vx: (Math.random() - 0.5) * 1.2,
-      vy: dir * (3 + Math.random() * 2),
-      life: 22,
-      color
-    });
-  }
-}
 
 // =====================================================
 // INPUT
@@ -151,25 +128,32 @@ function spawnThruster(x, y, dir, color) {
 function flip() {
   audioCtx.resume();
   if (!musicStarted) { startMusic(); musicStarted = true; }
-
   if (!alive) { restartLevel(); duckMusic(0.25); return; }
 
   gravity *= -1;
-
-  spawnThruster(
-    player.x - 18,
-    player.y + (gravity === 1 ? 10 : -10),
-    gravity,
-    currentSuitColor()
-  );
-
+  spawnThruster(player.x - 18, player.y, gravity, currentSuitColor());
   playTone(520, 0.05, "square", 0.03);
 }
 
 window.addEventListener("mousedown", flip);
 window.addEventListener("touchstart", e => {
   e.preventDefault(); flip();
-}, { passive: false });
+}, { passive:false });
+
+// =====================================================
+// PARTICLES
+// =====================================================
+function spawnThruster(x, y, dir, color) {
+  for (let i = 0; i < 8; i++) {
+    particles.push({
+      x, y,
+      vx:(Math.random()-0.5)*1.2,
+      vy:dir*(3+Math.random()*2),
+      life:22,
+      color
+    });
+  }
+}
 
 // =====================================================
 // LEVEL FLOW
@@ -178,7 +162,7 @@ function restartLevel() {
   gravity = 1;
   alive = true;
   score = 0;
-  player.y = canvas.height / 2;
+  player.y = canvas.height/2;
   player.vy = 0;
   obstacles = [];
   spawnTimer = 0;
@@ -191,92 +175,116 @@ function nextLevel() {
   worldSpeed += 0.35;
   player.maxVy += 0.3;
   levelFlash = 60;
-  playTone(900, 0.2, "triangle", 0.07);
+  playTone(900,0.2,"triangle",0.07);
   restartLevel();
 }
 
 // =====================================================
-// BACKGROUND
+// BACKGROUND + STRUCTURES
 // =====================================================
 function drawBackground() {
   const b = currentBiome();
-  const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
-  grad.addColorStop(0, b.skyTop);
-  grad.addColorStop(1, b.skyBottom);
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const g = ctx.createLinearGradient(0,0,0,canvas.height);
+  g.addColorStop(0,b.skyTop);
+  g.addColorStop(1,b.skyBottom);
+  ctx.fillStyle = g;
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  // Alien structures (mid-ground)
+  ctx.fillStyle = b.structure;
+  for (let i=0;i<6;i++){
+    const x = (i*320 + level*-40) % (canvas.width+320);
+    ctx.beginPath();
+    ctx.moveTo(x,canvas.height);
+    ctx.lineTo(x+70,canvas.height-140);
+    ctx.lineTo(x+140,canvas.height);
+    ctx.fill();
+  }
 }
 
 // =====================================================
-// ASTRONAUT + JETPACK
+// FOREGROUND PLANTS
 // =====================================================
-function drawAstronaut(x, y, size, flipped) {
-  const suitColor = currentSuitColor();
-
-  // ---------- GLOW (LEVEL 5+) ----------
-  if (level >= 5) {
-    ctx.save();
-    ctx.globalAlpha = 0.35;
-    ctx.shadowColor = suitColor;
-    ctx.shadowBlur = 25;
-    ctx.fillStyle = suitColor;
+function drawPlants() {
+  const b = currentBiome();
+  for (let i=0;i<14;i++){
+    const x = (i*180 + level*-80) % (canvas.width+200);
+    ctx.strokeStyle = `hsla(${b.plantHue},80%,65%,0.85)`;
+    ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.arc(x, y, size * 0.9, 0, Math.PI * 2);
+    ctx.moveTo(x,canvas.height);
+    ctx.quadraticCurveTo(
+      x+12,canvas.height-60,
+      x+6,canvas.height-120
+    );
+    ctx.stroke();
+
+    ctx.fillStyle = `hsla(${b.plantHue+20},90%,70%,0.9)`;
+    ctx.beginPath();
+    ctx.arc(x+6,canvas.height-120,5,0,Math.PI*2);
+    ctx.fill();
+  }
+}
+
+// =====================================================
+// ASTRONAUT + GLOW
+// =====================================================
+function drawAstronaut(x,y,size,flipped){
+  const color = currentSuitColor();
+
+  if(level>=5){
+    ctx.save();
+    ctx.globalAlpha=0.35;
+    ctx.shadowColor=color;
+    ctx.shadowBlur=25;
+    ctx.fillStyle=color;
+    ctx.beginPath();
+    ctx.arc(x,y,size*0.9,0,Math.PI*2);
     ctx.fill();
     ctx.restore();
   }
 
-  // ---------- TRAIL (LEVEL 5+) ----------
-  if (level >= 5) {
-    player.trail.push({ x, y, life: 18 });
-    if (player.trail.length > 20) player.trail.shift();
-
-    player.trail.forEach(p => {
-      ctx.globalAlpha = p.life / 18 * 0.4;
-      ctx.fillStyle = suitColor;
+  if(level>=5){
+    player.trail.push({x,y,life:18});
+    if(player.trail.length>20)player.trail.shift();
+    player.trail.forEach(p=>{
+      ctx.globalAlpha=p.life/18*0.4;
+      ctx.fillStyle=color;
       ctx.beginPath();
-      ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+      ctx.arc(p.x,p.y,3,0,Math.PI*2);
       ctx.fill();
       p.life--;
     });
-    ctx.globalAlpha = 1;
-    player.trail = player.trail.filter(p => p.life > 0);
+    ctx.globalAlpha=1;
+    player.trail=player.trail.filter(p=>p.life>0);
   }
 
-  // ---------- JETPACK (FIXED LEFT) ----------
-  ctx.fillStyle = "#444";
+  // Jetpack (fixed left)
+  ctx.fillStyle="#444";
   ctx.beginPath();
-  ctx.roundRect(x - size * 1.1, y - size * 0.4, size * 0.5, size * 0.8, 8);
+  ctx.roundRect(x-size*1.1,y-size*0.4,size*0.5,size*0.8,8);
   ctx.fill();
 
-  // ---------- ASTRONAUT ----------
   ctx.save();
-  ctx.translate(x, y);
-  ctx.rotate(flipped ? Math.PI : 0);
+  ctx.translate(x,y);
+  ctx.rotate(flipped?Math.PI:0);
 
-  // Body
-  ctx.fillStyle = suitColor;
+  ctx.fillStyle=color;
   ctx.beginPath();
-  ctx.roundRect(-size * 0.25, -size * 0.05, size * 0.5, size * 0.6, 10);
+  ctx.roundRect(-size*0.25,-size*0.05,size*0.5,size*0.6,10);
   ctx.fill();
 
-  // Helmet
-  const helmetGrad = ctx.createRadialGradient(
-    -size * 0.1, -size * 0.6, size * 0.1,
-    0, -size * 0.45, size * 0.5
-  );
-  helmetGrad.addColorStop(0, "#ffffff");
-  helmetGrad.addColorStop(1, "#dcdcdc");
-
-  ctx.fillStyle = helmetGrad;
+  const h = ctx.createRadialGradient(-size*0.1,-size*0.6,size*0.1,0,-size*0.45,size*0.5);
+  h.addColorStop(0,"#fff");
+  h.addColorStop(1,"#dcdcdc");
+  ctx.fillStyle=h;
   ctx.beginPath();
-  ctx.arc(0, -size * 0.45, size * 0.45, 0, Math.PI * 2);
+  ctx.arc(0,-size*0.45,size*0.45,0,Math.PI*2);
   ctx.fill();
 
-  // Visor
-  ctx.fillStyle = "#111";
+  ctx.fillStyle="#111";
   ctx.beginPath();
-  ctx.arc(0.1 * size, -size * 0.45, size * 0.25, Math.PI * 0.2, Math.PI * 1.8);
+  ctx.arc(0.1*size,-size*0.45,size*0.25,Math.PI*0.2,Math.PI*1.8);
   ctx.fill();
 
   ctx.restore();
@@ -285,12 +293,12 @@ function drawAstronaut(x, y, size, flipped) {
 // =====================================================
 // OBSTACLES
 // =====================================================
-function spawnObstacle() {
-  const gap = Math.max(130, canvas.height * 0.35 - level * 12);
+function spawnObstacle(){
+  const gap=Math.max(130,canvas.height*0.35-level*12);
   obstacles.push({
-    x: canvas.width,
-    width: canvas.width * 0.14,
-    gapY: Math.random() * (canvas.height - gap),
+    x:canvas.width,
+    width:canvas.width*0.14,
+    gapY:Math.random()*(canvas.height-gap),
     gap
   });
 }
@@ -298,73 +306,64 @@ function spawnObstacle() {
 // =====================================================
 // LOOP
 // =====================================================
-function update() {
+function update(){
   drawBackground();
 
-  if (alive) {
-    score += 0.02;
-    player.vy += gravity * 0.45;
-    player.vy = Math.max(-player.maxVy, Math.min(player.vy, player.maxVy));
-    player.y += player.vy;
+  if(alive){
+    score+=0.02;
+    player.vy+=gravity*0.45;
+    player.vy=Math.max(-player.maxVy,Math.min(player.vy,player.maxVy));
+    player.y+=player.vy;
 
-    spawnTimer += worldSpeed;
-    if (spawnTimer > 200) {
-      spawnObstacle();
-      spawnTimer = 0;
-    }
+    spawnTimer+=worldSpeed;
+    if(spawnTimer>200){spawnObstacle();spawnTimer=0;}
 
-    for (let o of obstacles) {
-      o.x -= worldSpeed;
-      if (
-        player.x + player.r > o.x &&
-        player.x - player.r < o.x + o.width &&
-        (player.y - player.r < o.gapY ||
-         player.y + player.r > o.gapY + o.gap)
-      ) {
-        alive = false;
-        playTone(140, 0.3, "sawtooth", 0.07);
+    for(const o of obstacles){
+      o.x-=worldSpeed;
+      if(
+        player.x+player.r>o.x &&
+        player.x-player.r<o.x+o.width &&
+        (player.y-player.r<o.gapY || player.y+player.r>o.gapY+o.gap)
+      ){
+        alive=false;
+        playTone(140,0.3,"sawtooth",0.07);
         duckMusic(0.08);
       }
     }
 
-    obstacles = obstacles.filter(o => o.x + o.width > 0);
-    if (score >= levelTarget) nextLevel();
+    obstacles=obstacles.filter(o=>o.x+o.width>0);
+    if(score>=levelTarget)nextLevel();
   }
 
-  // Thrusters
-  particles.forEach(p => {
-    ctx.globalAlpha = p.life / 22;
-    ctx.fillStyle = p.color;
-    ctx.fillRect(p.x, p.y, 2, 2);
-    p.x += p.vx;
-    p.y += p.vy;
-    p.life--;
+  particles.forEach(p=>{
+    ctx.globalAlpha=p.life/22;
+    ctx.fillStyle=p.color;
+    ctx.fillRect(p.x,p.y,2,2);
+    p.x+=p.vx; p.y+=p.vy; p.life--;
   });
-  ctx.globalAlpha = 1;
-  particles = particles.filter(p => p.life > 0);
+  ctx.globalAlpha=1;
+  particles=particles.filter(p=>p.life>0);
 
-  drawAstronaut(player.x, player.y, player.r * 2, gravity === -1);
+  drawAstronaut(player.x,player.y,player.r*2,gravity===-1);
+  drawPlants();
 
-  // Walls
-  ctx.fillStyle = "#222";
-  obstacles.forEach(o => {
-    ctx.fillRect(o.x, 0, o.width, o.gapY);
-    ctx.fillRect(o.x, o.gapY + o.gap, o.width, canvas.height);
+  ctx.fillStyle="#222";
+  obstacles.forEach(o=>{
+    ctx.fillRect(o.x,0,o.width,o.gapY);
+    ctx.fillRect(o.x,o.gapY+o.gap,o.width,canvas.height);
   });
 
-  // UI
-  ctx.fillStyle = "#aaa";
-  ctx.font = "16px monospace";
-  ctx.fillText(`LEVEL ${level}`, 20, 24);
-  ctx.fillText(`PROGRESS ${score.toFixed(1)} / ${levelTarget}`, 20, 44);
+  ctx.fillStyle="#aaa";
+  ctx.font="16px monospace";
+  ctx.fillText(`LEVEL ${level}`,20,24);
 
-  if (levelFlash > 0) {
+  if(levelFlash>0){
     levelFlash--;
-    ctx.fillStyle = currentSuitColor();
-    ctx.font = "28px monospace";
-    ctx.textAlign = "center";
-    ctx.fillText("LEVEL COMPLETE", canvas.width / 2, canvas.height / 2);
-    ctx.textAlign = "left";
+    ctx.fillStyle=currentSuitColor();
+    ctx.font="28px monospace";
+    ctx.textAlign="center";
+    ctx.fillText("LEVEL COMPLETE",canvas.width/2,canvas.height/2);
+    ctx.textAlign="left";
   }
 
   requestAnimationFrame(update);

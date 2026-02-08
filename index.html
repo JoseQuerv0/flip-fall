@@ -57,7 +57,7 @@ function startMusic() {
   musicSource.start();
 }
 
-function playTone(freq, dur, type = "sine", vol = 0.06) {
+function playTone(freq, dur, type = "sine", vol = 0.05) {
   const o = audioCtx.createOscillator();
   const g = audioCtx.createGain();
   o.type = type;
@@ -81,11 +81,11 @@ function haptic(ms = 20) {
 // BIOMES + COLORS
 // =====================================================
 const BIOMES = [
-  { sky:["#15193a","#2e3470"], plant:0, structure:"#31386a" },
-  { sky:["#2b0f1f","#6b2a4a"], plant:1, structure:"#5a2a3c" },
-  { sky:["#0b2733","#1f8fa6"], plant:2, structure:"#135062" },
-  { sky:["#2e220c","#9a6b26"], plant:3, structure:"#6b4a18" },
-  { sky:["#120b26","#4b3cb3"], plant:4, structure:"#2f2470" }
+  { sky:["#14173a","#2c3172"], plant:0, structure:"#2b315f" },
+  { sky:["#2a0e1f","#6a2a4a"], plant:1, structure:"#532334" },
+  { sky:["#0a2633","#1e8fa6"], plant:2, structure:"#10495b" },
+  { sky:["#2b200b","#9a6b26"], plant:3, structure:"#5f4214" },
+  { sky:["#120b26","#4b3cb3"], plant:4, structure:"#2a2266" }
 ];
 
 const SUIT_COLORS = [
@@ -93,15 +93,9 @@ const SUIT_COLORS = [
   "#7dffd5","#b79cff","#ffb86c","#9cff8a"
 ];
 
-function biome() {
-  return BIOMES[(level - 1) % BIOMES.length];
-}
-function suitColor() {
-  return SUIT_COLORS[(level - 1) % SUIT_COLORS.length];
-}
-function structureTier() {
-  return Math.floor((level - 1) / 2) % 3;
-}
+const biome = () => BIOMES[(level - 1) % BIOMES.length];
+const suitColor = () => SUIT_COLORS[(level - 1) % SUIT_COLORS.length];
+const structureTier = () => Math.floor((level - 1) / 2) % 3;
 
 // =====================================================
 // GAME STATE
@@ -114,12 +108,16 @@ let inputLocked = false;
 
 let level = 1;
 let score = 0;
-let levelTarget = 30;
+let levelTarget = 22; // FASTER LEVEL CLEAR
 let worldSpeed = 2;
 
 let lives = 5;
 let savedLevel = 1;
 let deathTimer = 0;
+
+// screen shake
+let shakeTime = 0;
+let shakeMag = 0;
 
 const player = {
   x: 0,
@@ -135,11 +133,10 @@ let spawnTimer = 0;
 let particles = [];
 
 // =====================================================
-// INPUT (GAMEPLAY)
+// INPUT
 // =====================================================
 function flip() {
   if (!started || inputLocked || !alive) return;
-
   audioCtx.resume();
   startMusic();
 
@@ -153,7 +150,7 @@ canvas.addEventListener("touchstart", e => {
     e.preventDefault();
     flip();
   }
-}, { passive: false });
+}, { passive:false });
 
 canvas.addEventListener("mousedown", () => {
   if (started) flip();
@@ -190,27 +187,31 @@ function restart() {
 }
 
 function handleDeath() {
-  if (mode !== "zen") {
-    lives--;
-    alive = false;
-    deathTimer = 40;
-    haptic(40);
-    playTone(180, 0.25, "sine", 0.08);
+  if (mode === "zen") return;
 
-    if (lives <= 0) {
-      level = (mode === "standard") ? savedLevel : 1;
-    }
+  lives--;
+  alive = false;
+  deathTimer = 36;
+  shakeTime = 14;
+  shakeMag = 3;
+
+  haptic(35);
+  playTone(190, 0.22, "sine", 0.08);
+
+  if (lives <= 0) {
+    level = (mode === "standard") ? savedLevel : 1;
   }
 }
 
 function nextLevel() {
   level++;
   score = 0;
-  levelTarget += 15;
-  worldSpeed += 0.35;
-  player.maxVy += 0.3;
+  levelTarget += mode === "zen" ? 10 : 14; // ZEN clears faster
+  worldSpeed += 0.3;
+  player.maxVy += 0.25;
+
   if (mode === "standard") savedLevel = Math.max(savedLevel, level);
-  playTone(900, 0.2, "triangle", 0.07);
+  playTone(880, 0.18, "triangle", 0.07);
   restart();
 }
 
@@ -225,7 +226,6 @@ canvas.addEventListener("touchend", e => {
   const t = e.changedTouches[0];
   handleModeTap(t.clientX, t.clientY);
 });
-
 canvas.addEventListener("mouseup", e => {
   if (started) return;
   handleModeTap(e.clientX, e.clientY);
@@ -239,20 +239,14 @@ function handleModeTap(x, y) {
   ];
 
   for (const b of buttons) {
-    const w = 260;
-    const h = 52;
-    const bx = canvas.width / 2 - w / 2;
-    const by = canvas.height * b.y + (1 - modeAnim) * 40;
-
-    if (x >= bx && x <= bx + w && y >= by && y <= by + h) {
+    const w = 260, h = 52;
+    const bx = canvas.width/2 - w/2;
+    const by = canvas.height*b.y + (1-modeAnim)*40;
+    if (x>=bx && x<=bx+w && y>=by && y<=by+h) {
       pressedButton = b.label;
       haptic(25);
       playTone(660, 0.08, "triangle", 0.04);
-
-      setTimeout(() => {
-        startGame(b.name);
-        pressedButton = null;
-      }, 120);
+      setTimeout(()=>{ startGame(b.name); pressedButton=null; },120);
       break;
     }
   }
@@ -267,52 +261,46 @@ function startGame(m) {
   lives = 5;
   savedLevel = 1;
   restart();
-  setTimeout(() => inputLocked = false, 60);
+  setTimeout(()=>inputLocked=false,60);
 }
 
 function drawModeSelect() {
   modeAnim = Math.min(1, modeAnim + 0.04);
-
   ctx.fillStyle = "#000c";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillRect(0,0,canvas.width,canvas.height);
 
   ctx.fillStyle = "#fff";
   ctx.font = "28px monospace";
   ctx.textAlign = "center";
   ctx.globalAlpha = modeAnim;
-  ctx.fillText("SELECT MODE", canvas.width / 2, canvas.height * 0.22);
+  ctx.fillText("SELECT MODE", canvas.width/2, canvas.height*0.22);
   ctx.globalAlpha = 1;
 
-  drawButton("ZEN", 0.45);
-  drawButton("STANDARD", 0.55);
-  drawButton("CLASSIC", 0.65);
-
+  drawButton("ZEN",0.45);
+  drawButton("STANDARD",0.55);
+  drawButton("CLASSIC",0.65);
   ctx.textAlign = "left";
 }
 
-function drawButton(label, yRatio) {
-  const w = 260;
-  const h = 52;
-  const x = canvas.width / 2 - w / 2;
-  const y = canvas.height * yRatio + (1 - modeAnim) * 40;
-  const pressed = pressedButton === label;
-  const scale = pressed ? 0.96 : 1;
+function drawButton(label,yRatio) {
+  const w=260,h=52;
+  const x=canvas.width/2-w/2;
+  const y=canvas.height*yRatio+(1-modeAnim)*40;
+  const pressed = pressedButton===label;
+  const scale = pressed?0.96:1;
 
   ctx.save();
-  ctx.translate(canvas.width / 2, y + h / 2);
-  ctx.scale(scale, scale);
-  ctx.translate(-canvas.width / 2, -(y + h / 2));
-
-  ctx.fillStyle = pressed ? "#333" : "#222";
-  ctx.fillRect(x, y, w, h);
-  ctx.strokeStyle = "#666";
-  ctx.strokeRect(x, y, w, h);
-
-  ctx.fillStyle = "#fff";
-  ctx.font = "20px monospace";
-  ctx.textAlign = "center";
-  ctx.fillText(label, canvas.width / 2, y + 34);
-
+  ctx.translate(canvas.width/2,y+h/2);
+  ctx.scale(scale,scale);
+  ctx.translate(-canvas.width/2,-(y+h/2));
+  ctx.fillStyle = pressed?"#333":"#222";
+  ctx.fillRect(x,y,w,h);
+  ctx.strokeStyle="#666";
+  ctx.strokeRect(x,y,w,h);
+  ctx.fillStyle="#fff";
+  ctx.font="20px monospace";
+  ctx.textAlign="center";
+  ctx.fillText(label,canvas.width/2,y+34);
   ctx.restore();
 }
 
@@ -321,45 +309,48 @@ function drawButton(label, yRatio) {
 // =====================================================
 function drawBackground() {
   const b = biome();
-  const g = ctx.createLinearGradient(0, 0, 0, canvas.height);
-  g.addColorStop(0, b.sky[0]);
-  g.addColorStop(1, b.sky[1]);
+  const g = ctx.createLinearGradient(0,0,0,canvas.height);
+  g.addColorStop(0,b.sky[0]);
+  g.addColorStop(1,b.sky[1]);
   ctx.fillStyle = g;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+}
 
+function drawStructures() {
+  const b = biome();
   ctx.fillStyle = b.structure;
-  for (let i = 0; i < 6; i++) {
-    const x = (i * 320 + level * -40) % (canvas.width + 320);
+  for (let i=0;i<6;i++) {
+    const x=(i*320+level*-40)%(canvas.width+320);
     ctx.beginPath();
-    if (structureTier() === 0) {
-      ctx.moveTo(x, canvas.height);
-      ctx.lineTo(x + 70, canvas.height - 120);
-      ctx.lineTo(x + 140, canvas.height);
-    } else if (structureTier() === 1) {
-      ctx.moveTo(x, canvas.height);
-      ctx.lineTo(x + 50, canvas.height - 160);
-      ctx.lineTo(x + 100, canvas.height);
+    if (structureTier()===0) {
+      ctx.moveTo(x,canvas.height);
+      ctx.lineTo(x+70,canvas.height-120);
+      ctx.lineTo(x+140,canvas.height);
+    } else if (structureTier()===1) {
+      ctx.moveTo(x,canvas.height);
+      ctx.lineTo(x+50,canvas.height-160);
+      ctx.lineTo(x+100,canvas.height);
     } else {
-      ctx.rect(x, canvas.height - 160, 60, 160);
-      ctx.rect(x + 80, canvas.height - 120, 40, 120);
+      ctx.rect(x,canvas.height-160,60,160);
+      ctx.rect(x+80,canvas.height-120,40,120);
     }
     ctx.fill();
   }
 }
 
 function drawPlants() {
-  const p = biome().plant;
-  for (let i = 0; i < 16; i++) {
-    const x = (i * 160 + level * -90) % (canvas.width + 200);
-    ctx.strokeStyle = `hsla(${p * 70},85%,70%,0.9)`;
-    ctx.lineWidth = 3.5;
+  const p=biome().plant;
+  for (let i=0;i<16;i++) {
+    const x=(i*160+level*-90)%(canvas.width+200);
+    ctx.strokeStyle=`hsla(${p*70},90%,72%,0.95)`;
+    ctx.lineWidth=3.5;
     ctx.beginPath();
-    ctx.moveTo(x, canvas.height);
-    if (p === 0) ctx.quadraticCurveTo(x+12, canvas.height-70, x, canvas.height-140);
-    if (p === 1) ctx.lineTo(x, canvas.height-130);
-    if (p === 2) ctx.lineTo(x+8, canvas.height-150);
-    if (p === 3) ctx.quadraticCurveTo(x-14, canvas.height-50, x, canvas.height-120);
-    if (p === 4) ctx.quadraticCurveTo(x+24, canvas.height-90, x, canvas.height-170);
+    ctx.moveTo(x,canvas.height);
+    if(p===0)ctx.quadraticCurveTo(x+12,canvas.height-70,x,canvas.height-140);
+    if(p===1)ctx.lineTo(x,canvas.height-130);
+    if(p===2)ctx.lineTo(x+8,canvas.height-150);
+    if(p===3)ctx.quadraticCurveTo(x-14,canvas.height-50,x,canvas.height-120);
+    if(p===4)ctx.quadraticCurveTo(x+24,canvas.height-90,x,canvas.height-170);
     ctx.stroke();
   }
 }
@@ -368,40 +359,36 @@ function drawPlants() {
 // ASTRONAUT
 // =====================================================
 function drawAstronaut() {
-  const c = suitColor();
+  const c=suitColor();
 
-  if (level >= 5) {
-    ctx.globalAlpha = 0.4;
-    ctx.shadowColor = c;
-    ctx.shadowBlur = 30;
-    ctx.fillStyle = c;
+  if(level>=5){
+    ctx.globalAlpha=0.45;
+    ctx.shadowColor=c;
+    ctx.shadowBlur=32;
+    ctx.fillStyle=c;
     ctx.beginPath();
-    ctx.arc(player.x, player.y, 24, 0, Math.PI * 2);
+    ctx.arc(player.x,player.y,26,0,Math.PI*2);
     ctx.fill();
-    ctx.shadowBlur = 0;
-    ctx.globalAlpha = 1;
+    ctx.shadowBlur=0;
+    ctx.globalAlpha=1;
   }
 
-  ctx.fillStyle = "#444";
-  ctx.fillRect(player.x - 28, player.y - 18, 14, 36);
+  ctx.fillStyle="#444";
+  ctx.fillRect(player.x-28,player.y-18,14,36);
 
   ctx.save();
-  ctx.translate(player.x, player.y);
-  ctx.rotate(gravity === -1 ? Math.PI : 0);
-
-  ctx.fillStyle = c;
-  ctx.fillRect(-7, -3, 14, 20);
-
-  ctx.fillStyle = "#eee";
+  ctx.translate(player.x,player.y);
+  ctx.rotate(gravity===-1?Math.PI:0);
+  ctx.fillStyle=c;
+  ctx.fillRect(-7,-3,14,20);
+  ctx.fillStyle="#eee";
   ctx.beginPath();
-  ctx.arc(0, -14, 11, 0, Math.PI * 2);
+  ctx.arc(0,-14,11,0,Math.PI*2);
   ctx.fill();
-
-  ctx.fillStyle = "#111";
+  ctx.fillStyle="#111";
   ctx.beginPath();
-  ctx.arc(3, -14, 5.5, 0, Math.PI * 2);
+  ctx.arc(3,-14,5.5,0,Math.PI*2);
   ctx.fill();
-
   ctx.restore();
 }
 
@@ -409,11 +396,11 @@ function drawAstronaut() {
 // OBSTACLES
 // =====================================================
 function spawnObstacle() {
-  const gap = Math.max(130, canvas.height * 0.35 - level * 12);
+  const gap = Math.max(130, canvas.height*0.35 - level*12);
   obstacles.push({
-    x: canvas.width,
-    width: canvas.width * 0.14,
-    gapY: Math.random() * (canvas.height - gap),
+    x:canvas.width,
+    width:canvas.width*0.14,
+    gapY:Math.random()*(canvas.height-gap),
     gap
   });
 }
@@ -422,75 +409,82 @@ function spawnObstacle() {
 // MAIN LOOP
 // =====================================================
 function update() {
+  let ox=0, oy=0;
+  if (shakeTime>0) {
+    shakeTime--;
+    ox=(Math.random()-0.5)*shakeMag;
+    oy=(Math.random()-0.5)*shakeMag;
+  }
+
+  ctx.save();
+  ctx.translate(ox,oy);
+
   drawBackground();
+  drawStructures();
 
   if (started && alive) {
-    score += 0.02;
-    player.vy += gravity * 0.45;
-    player.vy = Math.max(-player.maxVy, Math.min(player.vy, player.maxVy));
+    score += 0.025;
+    player.vy += gravity*0.45;
+    player.vy = Math.max(-player.maxVy,Math.min(player.vy,player.maxVy));
     player.y += player.vy;
 
     spawnTimer += worldSpeed;
-    if (spawnTimer > 200) {
-      spawnObstacle();
-      spawnTimer = 0;
-    }
+    if (spawnTimer>200){ spawnObstacle(); spawnTimer=0; }
 
     for (const o of obstacles) {
       o.x -= worldSpeed;
       if (
-        player.x + player.r > o.x &&
-        player.x - player.r < o.x + o.width &&
-        (player.y - player.r < o.gapY || player.y + player.r > o.gapY + o.gap)
+        player.x+player.r>o.x &&
+        player.x-player.r<o.x+o.width &&
+        (player.y-player.r<o.gapY || player.y+player.r>o.gapY+o.gap)
       ) {
         handleDeath();
         break;
       }
     }
 
-    obstacles = obstacles.filter(o => o.x + o.width > 0);
-    if (score >= levelTarget) nextLevel();
+    obstacles = obstacles.filter(o=>o.x+o.width>0);
+    if (score>=levelTarget) nextLevel();
   }
 
-  if (!alive && deathTimer > 0) {
+  if (!alive && deathTimer>0) {
     deathTimer--;
-    if (deathTimer === 0) restart();
+    if (deathTimer===0) restart();
   }
 
-  particles.forEach(p => {
-    ctx.globalAlpha = p.life / 22;
-    ctx.fillStyle = p.color;
-    ctx.fillRect(p.x, p.y, 2, 2);
-    p.x += p.vx;
-    p.y += p.vy;
-    p.life--;
+  particles.forEach(p=>{
+    ctx.globalAlpha=p.life/22;
+    ctx.fillStyle=p.color;
+    ctx.fillRect(p.x,p.y,2,2);
+    p.x+=p.vx; p.y+=p.vy; p.life--;
   });
-  ctx.globalAlpha = 1;
-  particles = particles.filter(p => p.life > 0);
+  ctx.globalAlpha=1;
+  particles=particles.filter(p=>p.life>0);
 
   drawAstronaut();
   drawPlants();
 
-  ctx.fillStyle = "#333";
-  obstacles.forEach(o => {
-    ctx.fillRect(o.x, 0, o.width, o.gapY);
-    ctx.fillRect(o.x, o.gapY + o.gap, o.width, canvas.height);
+  ctx.fillStyle="#2a2a2a";
+  obstacles.forEach(o=>{
+    ctx.fillRect(o.x,0,o.width,o.gapY);
+    ctx.fillRect(o.x,o.gapY+o.gap,o.width,canvas.height);
   });
 
+  ctx.restore();
+
   // UI
-  ctx.fillStyle = "#ddd";
-  ctx.font = "16px monospace";
-  ctx.fillText(`LEVEL ${level}`, 20, 24);
-  ctx.fillRect(20, 36, 120, 6);
-  ctx.fillStyle = "#6f6";
-  ctx.fillRect(20, 36, (score / levelTarget) * 120, 6);
+  ctx.fillStyle="#eee";
+  ctx.font="16px monospace";
+  ctx.fillText(`LEVEL ${level}`,20,24);
+  ctx.fillRect(20,36,120,6);
+  ctx.fillStyle="#7f7";
+  ctx.fillRect(20,36,(score/levelTarget)*120,6);
 
   if (!started) drawModeSelect();
-
   requestAnimationFrame(update);
 }
 
-// IMPORTANT: ensure player spawns once at load
+// INIT
 restart();
 update();
 </script>

@@ -91,6 +91,31 @@ function currentBiome() {
 }
 
 // =====================================================
+// COLOR UNLOCKS
+// =====================================================
+const SUIT_COLORS = [
+  "#00ffd5", // default
+  "#ff9ad5",
+  "#ffd966",
+  "#7dffd5",
+  "#b79cff"
+];
+
+let unlockedColors = 1;
+let currentColorIndex = 0;
+
+function updateColorUnlock() {
+  const target = Math.min(
+    Math.floor((level - 1) / 5) + 1,
+    SUIT_COLORS.length
+  );
+  if (target > unlockedColors) {
+    unlockedColors = target;
+    currentColorIndex = unlockedColors - 1;
+  }
+}
+
+// =====================================================
 // GAME STATE
 // =====================================================
 let gravity = 1;
@@ -114,7 +139,7 @@ let obstacles = [];
 let spawnTimer = 0;
 
 // =====================================================
-// THRUSTER PARTICLES
+// THRUSTERS
 // =====================================================
 let particles = [];
 
@@ -139,7 +164,14 @@ function flip() {
   if (!alive) { restartLevel(); duckMusic(0.25); return; }
 
   gravity *= -1;
-  spawnThruster(player.x, player.y + (gravity === 1 ? 18 : -18), gravity);
+
+  // Thruster always from LEFT-side jetpack
+  spawnThruster(
+    player.x - 18,
+    player.y + (gravity === 1 ? 10 : -10),
+    gravity
+  );
+
   playTone(520, 0.05, "square", 0.03);
 }
 
@@ -163,6 +195,7 @@ function restartLevel() {
 
 function nextLevel() {
   level++;
+  updateColorUnlock();
   levelTarget += 15;
   worldSpeed += 0.35;
   player.maxVy += 0.3;
@@ -203,43 +236,46 @@ function drawForegroundPlants() {
     ctx.moveTo(x, canvas.height);
     ctx.quadraticCurveTo(x + 12, canvas.height - 50, x + 6, canvas.height - 100);
     ctx.stroke();
-
-    ctx.fillStyle = `hsla(${b.plantHue+20},90%,70%,0.9)`;
-    ctx.beginPath();
-    ctx.arc(x + 6, canvas.height - 100, 5, 0, Math.PI * 2);
-    ctx.fill();
   }
 }
 
 // =====================================================
-// JETPACK ASTRONAUT (CUTE + CLEAR)
+// ICON ASTRONAUT + FIXED JETPACK
 // =====================================================
 function drawAstronaut(x, y, size, flipped) {
+  ctx.save();
+
+  // --- JETPACK (ALWAYS LEFT, NEVER FLIPS SIDES) ---
+  ctx.translate(x - size * 0.6, y);
+  ctx.fillStyle = "#444";
+  ctx.beginPath();
+  ctx.roundRect(-size * 0.2, -size * 0.35, size * 0.4, size * 0.7, 8);
+  ctx.fill();
+
+  ctx.restore();
+
+  // --- ASTRONAUT BODY (FLIPS) ---
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(flipped ? Math.PI : 0);
 
-  // Jetpack
-  ctx.fillStyle = "#444";
-  ctx.beginPath();
-  ctx.roundRect(-size * 0.25, size * 0.4, size * 0.5, size * 0.35, 8);
-  ctx.fill();
-
   // Body
-  ctx.fillStyle = "#00ffd5";
+  ctx.fillStyle = SUIT_COLORS[currentColorIndex];
   ctx.beginPath();
-  ctx.roundRect(-size * 0.25, -size * 0.1, size * 0.5, size * 0.55, 10);
+  ctx.roundRect(-size * 0.25, -size * 0.05, size * 0.5, size * 0.6, 10);
   ctx.fill();
-
-  // Legs (dangling)
-  ctx.fillStyle = "#ccc";
-  ctx.fillRect(-6, size * 0.5, 4, 8);
-  ctx.fillRect(2, size * 0.5, 4, 8);
 
   // Helmet
-  ctx.fillStyle = "#eee";
+  const helmetGrad = ctx.createRadialGradient(
+    -size * 0.1, -size * 0.6, size * 0.1,
+    0, -size * 0.45, size * 0.5
+  );
+  helmetGrad.addColorStop(0, "#ffffff");
+  helmetGrad.addColorStop(1, "#dcdcdc");
+
+  ctx.fillStyle = helmetGrad;
   ctx.beginPath();
-  ctx.arc(0, -size * 0.45, size * 0.42, 0, Math.PI * 2);
+  ctx.arc(0, -size * 0.45, size * 0.45, 0, Math.PI * 2);
   ctx.fill();
 
   // Visor
@@ -313,7 +349,6 @@ function update() {
   particles = particles.filter(p => p.life > 0);
 
   drawAstronaut(player.x, player.y, player.r * 2, gravity === -1);
-
   drawForegroundPlants();
 
   // Walls

@@ -5,13 +5,8 @@
 <title>FLIP // FALL</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <style>
-  body {
-    margin: 0;
-    background: #000;
-    overflow: hidden;
-    touch-action: manipulation;
-  }
-  canvas { display: block; }
+body { margin:0; background:#000; overflow:hidden; touch-action:manipulation; }
+canvas { display:block; }
 </style>
 </head>
 <body>
@@ -23,352 +18,295 @@
 // =====================================================
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
-
-function resize() {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-}
-window.addEventListener("resize", resize);
-resize();
+function resize(){ canvas.width=innerWidth; canvas.height=innerHeight; }
+addEventListener("resize",resize); resize();
 
 // =====================================================
 // AUDIO
 // =====================================================
 const AudioCtx = window.AudioContext || window.webkitAudioContext;
 const audioCtx = new AudioCtx();
-
-let musicBuffer = null;
-let musicSource = null;
-let musicGain = audioCtx.createGain();
-musicGain.gain.value = 0.25;
+let musicBuffer=null, musicSource=null;
+const musicGain = audioCtx.createGain();
+musicGain.gain.value=0.25;
 musicGain.connect(audioCtx.destination);
 
-async function loadMusic() {
-  const res = await fetch("space.mp3");
-  const buf = await res.arrayBuffer();
-  musicBuffer = await audioCtx.decodeAudioData(buf);
-}
-loadMusic();
+fetch("space.mp3")
+.then(r=>r.arrayBuffer())
+.then(b=>audioCtx.decodeAudioData(b))
+.then(b=>musicBuffer=b);
 
-function startMusic() {
-  if (!musicBuffer || musicSource) return;
-  musicSource = audioCtx.createBufferSource();
-  musicSource.buffer = musicBuffer;
-  musicSource.loop = true;
-  musicSource.connect(musicGain);
-  musicSource.start();
+function startMusic(){
+ if(!musicBuffer||musicSource) return;
+ musicSource=audioCtx.createBufferSource();
+ musicSource.buffer=musicBuffer;
+ musicSource.loop=true;
+ musicSource.connect(musicGain);
+ musicSource.start();
 }
-
-function duckMusic(vol, t = 0.15) {
-  musicGain.gain.setTargetAtTime(vol, audioCtx.currentTime, t);
-}
-
-function playTone(freq, dur, type="sine", vol=0.05) {
-  const o = audioCtx.createOscillator();
-  const g = audioCtx.createGain();
-  o.type = type;
-  o.frequency.value = freq;
-  g.gain.value = vol;
-  o.connect(g);
-  g.connect(audioCtx.destination);
-  o.start();
-  o.stop(audioCtx.currentTime + dur);
+function playTone(f,d,t="sine",v=0.05){
+ const o=audioCtx.createOscillator(), g=audioCtx.createGain();
+ o.type=t; o.frequency.value=f; g.gain.value=v;
+ o.connect(g); g.connect(audioCtx.destination);
+ o.start(); o.stop(audioCtx.currentTime+d);
 }
 
 // =====================================================
-// BIOMES + COLORS
+// BIOMES
 // =====================================================
-const BIOMES = [
-  { skyTop:"#1b1e3c", skyBottom:"#3a3f7a", plantHue:160, structure:"#2a2d4a" },
-  { skyTop:"#3b1126", skyBottom:"#7a2a4a", plantHue:330, structure:"#4a1f32" },
-  { skyTop:"#0f2d3a", skyBottom:"#2fa4b8", plantHue:190, structure:"#163f4a" },
-  { skyTop:"#3a2a10", skyBottom:"#a87a2f", plantHue:45,  structure:"#5a4218" },
-  { skyTop:"#120f1f", skyBottom:"#3f2fa8", plantHue:280, structure:"#241c4a" }
+const BIOMES=[
+ {sky:["#1b1e3c","#3a3f7a"], plant:0, structure:"#2a2d4a"},
+ {sky:["#3b1126","#7a2a4a"], plant:1, structure:"#4a1f32"},
+ {sky:["#0f2d3a","#2fa4b8"], plant:2, structure:"#163f4a"},
+ {sky:["#3a2a10","#a87a2f"], plant:3, structure:"#5a4218"},
+ {sky:["#120f1f","#3f2fa8"], plant:4, structure:"#241c4a"}
 ];
+const SUIT_COLORS=["#00ffd5","#ff9ad5","#ffd966","#7dffd5","#b79cff","#ffb86c"];
 
-const SUIT_COLORS = [
-  "#00ffd5","#ff9ad5","#ffd966","#7dffd5","#b79cff","#ffb86c","#9cff8a"
-];
-
-function currentBiome() {
-  return BIOMES[(level - 1) % BIOMES.length];
-}
-function currentSuitColor() {
-  return SUIT_COLORS[(level - 1) % SUIT_COLORS.length];
-}
+const biome=()=>BIOMES[(level-1)%BIOMES.length];
+const suitColor=()=>SUIT_COLORS[(level-1)%SUIT_COLORS.length];
+const structureTier=()=>Math.floor((level-1)/2)%3;
 
 // =====================================================
 // GAME STATE
 // =====================================================
-let gravity = 1;
-let alive = true;
-let worldSpeed = 2.0;
-let score = 0;
-let level = 1;
-let levelTarget = 30;
-let levelFlash = 0;
-let musicStarted = false;
+let gravity=1, alive=true, level=1, score=0;
+let levelTarget=30, worldSpeed=2, lives=5;
+let mode=null, started=false, savedLevel=1;
 
-const player = {
-  x: canvas.width * 0.35,
-  y: canvas.height / 2,
-  r: 12,
-  vy: 0,
-  maxVy: 6,
-  trail: []
-};
-
-let obstacles = [];
-let spawnTimer = 0;
-let particles = [];
+const player={ x:0,y:0,vy:0,r:12,maxVy:6,trail:[] };
+let obstacles=[], spawnTimer=0, particles=[];
 
 // =====================================================
 // INPUT
 // =====================================================
-function flip() {
-  audioCtx.resume();
-  if (!musicStarted) { startMusic(); musicStarted = true; }
-  if (!alive) { restartLevel(); duckMusic(0.25); return; }
+function flip(){
+ audioCtx.resume(); startMusic();
+ if(!started) return;
+ if(!alive){ restart(); return; }
+ gravity*=-1;
+ spawnThruster(player.x-18,player.y,gravity,suitColor());
+ playTone(520,0.05,"square",0.03);
+}
+addEventListener("mousedown",flip);
+addEventListener("touchstart",e=>{e.preventDefault();flip();},{passive:false});
 
-  gravity *= -1;
-  spawnThruster(player.x - 18, player.y, gravity, currentSuitColor());
-  playTone(520, 0.05, "square", 0.03);
+// =====================================================
+// MODE SELECT
+// =====================================================
+function drawModeSelect(){
+ ctx.fillStyle="#000a"; ctx.fillRect(0,0,canvas.width,canvas.height);
+ ctx.fillStyle="#fff"; ctx.textAlign="center";
+ ctx.font="28px monospace";
+ ctx.fillText("SELECT MODE",canvas.width/2,canvas.height*0.25);
+
+ drawButton("ZEN",0.45,()=>startGame("zen"));
+ drawButton("STANDARD",0.55,()=>startGame("standard"));
+ drawButton("CLASSIC",0.65,()=>startGame("classic"));
+ ctx.textAlign="left";
 }
 
-window.addEventListener("mousedown", flip);
-window.addEventListener("touchstart", e => {
-  e.preventDefault(); flip();
-}, { passive:false });
+function drawButton(text,y,fn){
+ const w=260,h=50,x=canvas.width/2-w/2,yy=canvas.height*y;
+ ctx.fillStyle="#222"; ctx.fillRect(x,yy,w,h);
+ ctx.strokeStyle="#555"; ctx.strokeRect(x,yy,w,h);
+ ctx.fillStyle="#fff"; ctx.font="20px monospace";
+ ctx.fillText(text,canvas.width/2,yy+32);
+ canvas.onclick=e=>{
+  if(e.clientX>x&&e.clientX<x+w&&e.clientY>yy&&e.clientY<yy+h) fn();
+ };
+}
+
+function startGame(m){
+ mode=m; started=true;
+ lives=5; level=1; score=0; savedLevel=1;
+ restart();
+}
 
 // =====================================================
 // PARTICLES
 // =====================================================
-function spawnThruster(x, y, dir, color) {
-  for (let i = 0; i < 8; i++) {
-    particles.push({
-      x, y,
-      vx:(Math.random()-0.5)*1.2,
-      vy:dir*(3+Math.random()*2),
-      life:22,
-      color
-    });
-  }
+function spawnThruster(x,y,d,c){
+ for(let i=0;i<8;i++)particles.push({
+  x,y,vx:(Math.random()-.5)*1.2,vy:d*(3+Math.random()*2),
+  life:22,color:c
+ });
 }
 
 // =====================================================
-// LEVEL FLOW
+// FLOW
 // =====================================================
-function restartLevel() {
-  gravity = 1;
-  alive = true;
-  score = 0;
-  player.y = canvas.height/2;
-  player.vy = 0;
-  obstacles = [];
-  spawnTimer = 0;
-  player.trail = [];
+function restart(){
+ alive=true; gravity=1;
+ player.x=canvas.width*0.35;
+ player.y=canvas.height/2; player.vy=0;
+ obstacles=[]; spawnTimer=0; player.trail=[];
 }
 
-function nextLevel() {
-  level++;
-  levelTarget += 15;
-  worldSpeed += 0.35;
-  player.maxVy += 0.3;
-  levelFlash = 60;
-  playTone(900,0.2,"triangle",0.07);
-  restartLevel();
+function nextLevel(){
+ level++; score=0; levelTarget+=15;
+ worldSpeed+=0.35; player.maxVy+=0.3;
+ if(mode==="standard") savedLevel=Math.max(savedLevel,level);
+ playTone(900,0.2,"triangle",0.07);
+ restart();
 }
 
 // =====================================================
-// BACKGROUND + STRUCTURES
+// DRAW WORLD
 // =====================================================
-function drawBackground() {
-  const b = currentBiome();
-  const g = ctx.createLinearGradient(0,0,0,canvas.height);
-  g.addColorStop(0,b.skyTop);
-  g.addColorStop(1,b.skyBottom);
-  ctx.fillStyle = g;
-  ctx.fillRect(0,0,canvas.width,canvas.height);
+function drawBackground(){
+ const b=biome();
+ const g=ctx.createLinearGradient(0,0,0,canvas.height);
+ g.addColorStop(0,b.sky[0]); g.addColorStop(1,b.sky[1]);
+ ctx.fillStyle=g; ctx.fillRect(0,0,canvas.width,canvas.height);
 
-  // Alien structures (mid-ground)
-  ctx.fillStyle = b.structure;
-  for (let i=0;i<6;i++){
-    const x = (i*320 + level*-40) % (canvas.width+320);
-    ctx.beginPath();
-    ctx.moveTo(x,canvas.height);
-    ctx.lineTo(x+70,canvas.height-140);
-    ctx.lineTo(x+140,canvas.height);
-    ctx.fill();
-  }
-}
-
-// =====================================================
-// FOREGROUND PLANTS
-// =====================================================
-function drawPlants() {
-  const b = currentBiome();
-  for (let i=0;i<14;i++){
-    const x = (i*180 + level*-80) % (canvas.width+200);
-    ctx.strokeStyle = `hsla(${b.plantHue},80%,65%,0.85)`;
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(x,canvas.height);
-    ctx.quadraticCurveTo(
-      x+12,canvas.height-60,
-      x+6,canvas.height-120
-    );
-    ctx.stroke();
-
-    ctx.fillStyle = `hsla(${b.plantHue+20},90%,70%,0.9)`;
-    ctx.beginPath();
-    ctx.arc(x+6,canvas.height-120,5,0,Math.PI*2);
-    ctx.fill();
-  }
-}
-
-// =====================================================
-// ASTRONAUT + GLOW
-// =====================================================
-function drawAstronaut(x,y,size,flipped){
-  const color = currentSuitColor();
-
-  if(level>=5){
-    ctx.save();
-    ctx.globalAlpha=0.35;
-    ctx.shadowColor=color;
-    ctx.shadowBlur=25;
-    ctx.fillStyle=color;
-    ctx.beginPath();
-    ctx.arc(x,y,size*0.9,0,Math.PI*2);
-    ctx.fill();
-    ctx.restore();
-  }
-
-  if(level>=5){
-    player.trail.push({x,y,life:18});
-    if(player.trail.length>20)player.trail.shift();
-    player.trail.forEach(p=>{
-      ctx.globalAlpha=p.life/18*0.4;
-      ctx.fillStyle=color;
-      ctx.beginPath();
-      ctx.arc(p.x,p.y,3,0,Math.PI*2);
-      ctx.fill();
-      p.life--;
-    });
-    ctx.globalAlpha=1;
-    player.trail=player.trail.filter(p=>p.life>0);
-  }
-
-  // Jetpack (fixed left)
-  ctx.fillStyle="#444";
+ ctx.fillStyle=b.structure;
+ for(let i=0;i<6;i++){
+  const x=(i*320+level*-40)%(canvas.width+320);
   ctx.beginPath();
-  ctx.roundRect(x-size*1.1,y-size*0.4,size*0.5,size*0.8,8);
+  if(structureTier()===0){
+   ctx.moveTo(x,canvas.height);
+   ctx.lineTo(x+70,canvas.height-120);
+   ctx.lineTo(x+140,canvas.height);
+  }else if(structureTier()===1){
+   ctx.moveTo(x,canvas.height);
+   ctx.lineTo(x+50,canvas.height-160);
+   ctx.lineTo(x+100,canvas.height);
+  }else{
+   ctx.rect(x,canvas.height-160,60,160);
+   ctx.rect(x+80,canvas.height-120,40,120);
+  }
   ctx.fill();
+ }
+}
 
-  ctx.save();
-  ctx.translate(x,y);
-  ctx.rotate(flipped?Math.PI:0);
-
-  ctx.fillStyle=color;
+// =====================================================
+// PLANTS (PER BIOME SHAPES)
+// =====================================================
+function drawPlants(){
+ const p=biome().plant;
+ for(let i=0;i<14;i++){
+  const x=(i*180+level*-80)%(canvas.width+200);
+  ctx.strokeStyle=`hsla(${p*70},80%,65%,0.85)`;
+  ctx.lineWidth=3;
   ctx.beginPath();
-  ctx.roundRect(-size*0.25,-size*0.05,size*0.5,size*0.6,10);
-  ctx.fill();
+  ctx.moveTo(x,canvas.height);
+  if(p===0) ctx.quadraticCurveTo(x+10,canvas.height-60,x,canvas.height-120);
+  if(p===1) ctx.lineTo(x,canvas.height-120);
+  if(p===2) ctx.lineTo(x+6,canvas.height-140);
+  if(p===3) ctx.quadraticCurveTo(x-10,canvas.height-40,x,canvas.height-100);
+  if(p===4) ctx.quadraticCurveTo(x+20,canvas.height-80,x,canvas.height-160);
+  ctx.stroke();
+ }
+}
 
-  const h = ctx.createRadialGradient(-size*0.1,-size*0.6,size*0.1,0,-size*0.45,size*0.5);
-  h.addColorStop(0,"#fff");
-  h.addColorStop(1,"#dcdcdc");
-  ctx.fillStyle=h;
-  ctx.beginPath();
-  ctx.arc(0,-size*0.45,size*0.45,0,Math.PI*2);
-  ctx.fill();
+// =====================================================
+// ASTRONAUT
+// =====================================================
+function drawAstronaut(){
+ const c=suitColor();
+ if(level>=5){
+  ctx.globalAlpha=.35;
+  ctx.shadowColor=c; ctx.shadowBlur=25;
+  ctx.beginPath(); ctx.arc(player.x,player.y,22,0,Math.PI*2);
+  ctx.fillStyle=c; ctx.fill();
+  ctx.shadowBlur=0; ctx.globalAlpha=1;
+ }
 
-  ctx.fillStyle="#111";
-  ctx.beginPath();
-  ctx.arc(0.1*size,-size*0.45,size*0.25,Math.PI*0.2,Math.PI*1.8);
-  ctx.fill();
+ ctx.fillStyle="#444";
+ ctx.fillRect(player.x-26,player.y-16,12,32);
 
-  ctx.restore();
+ ctx.save();
+ ctx.translate(player.x,player.y);
+ ctx.rotate(gravity===-1?Math.PI:0);
+
+ ctx.fillStyle=c;
+ ctx.fillRect(-6,-2,12,18);
+
+ ctx.fillStyle="#ddd";
+ ctx.beginPath(); ctx.arc(0,-12,10,0,Math.PI*2); ctx.fill();
+
+ ctx.fillStyle="#111";
+ ctx.beginPath(); ctx.arc(2,-12,5,0,Math.PI*2); ctx.fill();
+ ctx.restore();
 }
 
 // =====================================================
 // OBSTACLES
 // =====================================================
 function spawnObstacle(){
-  const gap=Math.max(130,canvas.height*0.35-level*12);
-  obstacles.push({
-    x:canvas.width,
-    width:canvas.width*0.14,
-    gapY:Math.random()*(canvas.height-gap),
-    gap
-  });
+ const gap=Math.max(130,canvas.height*.35-level*12);
+ obstacles.push({
+  x:canvas.width,
+  width:canvas.width*.14,
+  gapY:Math.random()*(canvas.height-gap),
+  gap
+ });
 }
 
 // =====================================================
 // LOOP
 // =====================================================
 function update(){
-  drawBackground();
+ drawBackground();
 
+ if(started){
   if(alive){
-    score+=0.02;
-    player.vy+=gravity*0.45;
-    player.vy=Math.max(-player.maxVy,Math.min(player.vy,player.maxVy));
-    player.y+=player.vy;
+   score+=0.02;
+   player.vy+=gravity*0.45;
+   player.vy=Math.max(-player.maxVy,Math.min(player.vy,player.maxVy));
+   player.y+=player.vy;
 
-    spawnTimer+=worldSpeed;
-    if(spawnTimer>200){spawnObstacle();spawnTimer=0;}
+   spawnTimer+=worldSpeed;
+   if(spawnTimer>200){spawnObstacle();spawnTimer=0;}
 
-    for(const o of obstacles){
-      o.x-=worldSpeed;
-      if(
-        player.x+player.r>o.x &&
-        player.x-player.r<o.x+o.width &&
-        (player.y-player.r<o.gapY || player.y+player.r>o.gapY+o.gap)
-      ){
-        alive=false;
-        playTone(140,0.3,"sawtooth",0.07);
-        duckMusic(0.08);
-      }
+   for(const o of obstacles){
+    o.x-=worldSpeed;
+    if(player.x+player.r>o.x&&player.x-player.r<o.x+o.width &&
+      (player.y-player.r<o.gapY||player.y+player.r>o.gapY+o.gap)){
+      if(mode!=="zen"){ lives--; if(lives<=0){
+        if(mode==="standard"){ level=savedLevel; }
+        else level=1;
+      }}
+      alive=mode==="zen";
+      playTone(140,0.3,"sawtooth",0.07);
     }
+   }
 
-    obstacles=obstacles.filter(o=>o.x+o.width>0);
-    if(score>=levelTarget)nextLevel();
+   obstacles=obstacles.filter(o=>o.x+o.width>0);
+   if(score>=levelTarget) nextLevel();
   }
+ }
 
-  particles.forEach(p=>{
-    ctx.globalAlpha=p.life/22;
-    ctx.fillStyle=p.color;
-    ctx.fillRect(p.x,p.y,2,2);
-    p.x+=p.vx; p.y+=p.vy; p.life--;
-  });
-  ctx.globalAlpha=1;
-  particles=particles.filter(p=>p.life>0);
+ particles.forEach(p=>{
+  ctx.globalAlpha=p.life/22;
+  ctx.fillStyle=p.color;
+  ctx.fillRect(p.x,p.y,2,2);
+  p.x+=p.vx; p.y+=p.vy; p.life--;
+ });
+ ctx.globalAlpha=1;
+ particles=particles.filter(p=>p.life>0);
 
-  drawAstronaut(player.x,player.y,player.r*2,gravity===-1);
-  drawPlants();
+ drawAstronaut();
+ drawPlants();
 
-  ctx.fillStyle="#222";
-  obstacles.forEach(o=>{
-    ctx.fillRect(o.x,0,o.width,o.gapY);
-    ctx.fillRect(o.x,o.gapY+o.gap,o.width,canvas.height);
-  });
+ ctx.fillStyle="#222";
+ obstacles.forEach(o=>{
+  ctx.fillRect(o.x,0,o.width,o.gapY);
+  ctx.fillRect(o.x,o.gapY+o.gap,o.width,canvas.height);
+ });
 
-  ctx.fillStyle="#aaa";
-  ctx.font="16px monospace";
-  ctx.fillText(`LEVEL ${level}`,20,24);
+ // UI
+ ctx.fillStyle="#aaa"; ctx.font="16px monospace";
+ ctx.fillText(`LEVEL ${level}`,20,24);
+ ctx.fillRect(20,36,120,6);
+ ctx.fillStyle="#0f0";
+ ctx.fillRect(20,36,(score/levelTarget)*120,6);
 
-  if(levelFlash>0){
-    levelFlash--;
-    ctx.fillStyle=currentSuitColor();
-    ctx.font="28px monospace";
-    ctx.textAlign="center";
-    ctx.fillText("LEVEL COMPLETE",canvas.width/2,canvas.height/2);
-    ctx.textAlign="left";
-  }
+ if(!started) drawModeSelect();
 
-  requestAnimationFrame(update);
+ requestAnimationFrame(update);
 }
-
 update();
 </script>
 </body>

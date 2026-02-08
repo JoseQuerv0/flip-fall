@@ -76,14 +76,14 @@ function playTone(freq, dur, type="sine", vol=0.05) {
 }
 
 // =====================================================
-// BIOMES (EVERY 5 LEVELS)
+// BIOMES
 // =====================================================
 const BIOMES = [
-  { skyTop: "#1b1e3c", skyBottom: "#3a3f7a", plantHue: 160, structure: "#2a2d4a" },
-  { skyTop: "#3b1126", skyBottom: "#7a2a4a", plantHue: 330, structure: "#4a1f32" },
-  { skyTop: "#0f2d3a", skyBottom: "#2fa4b8", plantHue: 190, structure: "#163f4a" },
-  { skyTop: "#3a2a10", skyBottom: "#a87a2f", plantHue: 45,  structure: "#5a4218" },
-  { skyTop: "#120f1f", skyBottom: "#3f2fa8", plantHue: 280, structure: "#241c4a" }
+  { skyTop:"#1b1e3c", skyBottom:"#3a3f7a", plantHue:160, structure:"#2a2d4a" },
+  { skyTop:"#3b1126", skyBottom:"#7a2a4a", plantHue:330, structure:"#4a1f32" },
+  { skyTop:"#0f2d3a", skyBottom:"#2fa4b8", plantHue:190, structure:"#163f4a" },
+  { skyTop:"#3a2a10", skyBottom:"#a87a2f", plantHue:45,  structure:"#5a4218" },
+  { skyTop:"#120f1f", skyBottom:"#3f2fa8", plantHue:280, structure:"#241c4a" }
 ];
 
 function currentBiome() {
@@ -114,17 +114,17 @@ let obstacles = [];
 let spawnTimer = 0;
 
 // =====================================================
-// THRUSTERS
+// THRUSTER PARTICLES
 // =====================================================
 let particles = [];
 
 function spawnThruster(x, y, dir) {
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 10; i++) {
     particles.push({
       x, y,
-      vx: (Math.random() - 0.5) * 1.4,
-      vy: dir * (2.5 + Math.random() * 1.5),
-      life: 20
+      vx: (Math.random() - 0.5) * 1.2,
+      vy: dir * (3 + Math.random() * 2),
+      life: 22
     });
   }
 }
@@ -139,7 +139,7 @@ function flip() {
   if (!alive) { restartLevel(); duckMusic(0.25); return; }
 
   gravity *= -1;
-  spawnThruster(player.x - 12, player.y + (gravity === 1 ? -6 : 6), gravity);
+  spawnThruster(player.x, player.y + (gravity === 1 ? 18 : -18), gravity);
   playTone(520, 0.05, "square", 0.03);
 }
 
@@ -172,7 +172,7 @@ function nextLevel() {
 }
 
 // =====================================================
-// BACKGROUND (BIOME-AWARE)
+// BACKGROUND + FOREGROUND PLANTS
 // =====================================================
 function drawBackground() {
   const b = currentBiome();
@@ -191,57 +191,61 @@ function drawBackground() {
     ctx.lineTo(x + 120, canvas.height);
     ctx.fill();
   }
+}
 
-  for (let i = 0; i < 12; i++) {
-    const x = (i * 200 + level * -60) % (canvas.width + 200);
-    ctx.strokeStyle = `hsla(${b.plantHue},70%,60%,0.6)`;
+function drawForegroundPlants() {
+  const b = currentBiome();
+  for (let i = 0; i < 14; i++) {
+    const x = (i * 180 + level * -80) % (canvas.width + 200);
+    ctx.strokeStyle = `hsla(${b.plantHue},80%,65%,0.8)`;
+    ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.moveTo(x, canvas.height);
-    ctx.quadraticCurveTo(x + 10, canvas.height - 40, x + 5, canvas.height - 80);
+    ctx.quadraticCurveTo(x + 12, canvas.height - 50, x + 6, canvas.height - 100);
     ctx.stroke();
+
+    ctx.fillStyle = `hsla(${b.plantHue+20},90%,70%,0.9)`;
+    ctx.beginPath();
+    ctx.arc(x + 6, canvas.height - 100, 5, 0, Math.PI * 2);
+    ctx.fill();
   }
 }
 
 // =====================================================
-// CHIBI ASTRONAUT (FULL BODY)
+// JETPACK ASTRONAUT (CUTE + CLEAR)
 // =====================================================
 function drawAstronaut(x, y, size, flipped) {
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(flipped ? Math.PI : 0);
 
-  // Legs
-  ctx.fillStyle = "#ddd";
-  ctx.fillRect(-6, size * 0.55, 6, 8);
-  ctx.fillRect(2, size * 0.55, 6, 8);
+  // Jetpack
+  ctx.fillStyle = "#444";
+  ctx.beginPath();
+  ctx.roundRect(-size * 0.25, size * 0.4, size * 0.5, size * 0.35, 8);
+  ctx.fill();
 
   // Body
   ctx.fillStyle = "#00ffd5";
   ctx.beginPath();
-  ctx.roundRect(-size * 0.35, -size * 0.05, size * 0.7, size * 0.75, 8);
+  ctx.roundRect(-size * 0.25, -size * 0.1, size * 0.5, size * 0.55, 10);
   ctx.fill();
 
-  // Arms
+  // Legs (dangling)
   ctx.fillStyle = "#ccc";
-  ctx.fillRect(-size * 0.55, size * 0.15, 10, 6);
-  ctx.fillRect(size * 0.45, size * 0.15, 10, 6);
-
-  // Backpack
-  ctx.fillStyle = "#444";
-  ctx.beginPath();
-  ctx.roundRect(-size * 0.65, 0, size * 0.3, size * 0.5, 6);
-  ctx.fill();
+  ctx.fillRect(-6, size * 0.5, 4, 8);
+  ctx.fillRect(2, size * 0.5, 4, 8);
 
   // Helmet
   ctx.fillStyle = "#eee";
   ctx.beginPath();
-  ctx.arc(0, -size * 0.45, size * 0.45, 0, Math.PI * 2);
+  ctx.arc(0, -size * 0.45, size * 0.42, 0, Math.PI * 2);
   ctx.fill();
 
   // Visor
   ctx.fillStyle = "#111";
   ctx.beginPath();
-  ctx.arc(size * 0.1, -size * 0.45, size * 0.25, Math.PI * 0.2, Math.PI * 1.8);
+  ctx.arc(0.1 * size, -size * 0.45, size * 0.25, Math.PI * 0.2, Math.PI * 1.8);
   ctx.fill();
 
   ctx.restore();
@@ -297,9 +301,9 @@ function update() {
   }
 
   // Thrusters
-  ctx.fillStyle = "#aaa";
+  ctx.fillStyle = "#ffd27d";
   particles.forEach(p => {
-    ctx.globalAlpha = p.life / 20;
+    ctx.globalAlpha = p.life / 22;
     ctx.fillRect(p.x, p.y, 2, 2);
     p.x += p.vx;
     p.y += p.vy;
@@ -309,6 +313,8 @@ function update() {
   particles = particles.filter(p => p.life > 0);
 
   drawAstronaut(player.x, player.y, player.r * 2, gravity === -1);
+
+  drawForegroundPlants();
 
   // Walls
   ctx.fillStyle = "#222";

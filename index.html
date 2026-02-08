@@ -99,7 +99,7 @@ let obstacles = [];
 let spawnTimer = 0;
 
 // =====================================================
-// THRUSTER PARTICLES (THIS IS THE IMPORTANT PART)
+// THRUSTER PARTICLES
 // =====================================================
 let particles = [];
 
@@ -133,7 +133,7 @@ function flip() {
   }
 
   gravity *= -1;
-  spawnThruster(player.x, player.y, gravity); // 🔥 THRUSTER HERE
+  spawnThruster(player.x - 10, player.y + (gravity === 1 ? -6 : 6), gravity);
   playTone(520, 0.05, "square", 0.03);
 }
 
@@ -167,29 +167,98 @@ function nextLevel() {
 }
 
 // =====================================================
-// ASTRONAUT
+// ALIEN PLANET BACKGROUND
+// =====================================================
+const structures = Array.from({ length: 8 }, () => ({
+  x: Math.random() * canvas.width,
+  h: 80 + Math.random() * 140
+}));
+
+const plants = Array.from({ length: 14 }, () => ({
+  x: Math.random() * canvas.width,
+  h: 40 + Math.random() * 80,
+  glow: Math.random()
+}));
+
+function drawBackground() {
+  // --- Sky gradient ---
+  const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  grad.addColorStop(0, `hsl(${220 + level * 2}, 40%, 18%)`);
+  grad.addColorStop(1, `hsl(${260 + level * 2}, 45%, 28%)`);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // --- Distant structures ---
+  ctx.fillStyle = "rgba(30,30,40,0.6)";
+  structures.forEach(s => {
+    ctx.beginPath();
+    ctx.moveTo(s.x, canvas.height);
+    ctx.lineTo(s.x + 40, canvas.height - s.h);
+    ctx.lineTo(s.x + 80, canvas.height);
+    ctx.closePath();
+    ctx.fill();
+
+    s.x -= worldSpeed * 0.1;
+    if (s.x < -100) s.x = canvas.width + Math.random() * 200;
+  });
+
+  // --- Alien plants ---
+  plants.forEach(p => {
+    ctx.strokeStyle = `hsla(${140 + p.glow * 80},70%,60%,0.6)`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(p.x, canvas.height);
+    ctx.quadraticCurveTo(
+      p.x + 10,
+      canvas.height - p.h / 2,
+      p.x + 5,
+      canvas.height - p.h
+    );
+    ctx.stroke();
+
+    ctx.fillStyle = `hsla(${160 + p.glow * 60},80%,65%,0.7)`;
+    ctx.beginPath();
+    ctx.arc(p.x + 5, canvas.height - p.h, 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    p.x -= worldSpeed * 0.25;
+    if (p.x < -50) p.x = canvas.width + Math.random() * 200;
+  });
+}
+
+// =====================================================
+// POLISHED ASTRONAUT
 // =====================================================
 function drawAstronaut(x, y, size, flipped) {
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(flipped ? Math.PI : 0);
 
-  ctx.fillStyle = "#555";
-  ctx.fillRect(-size * 0.6, -size * 0.2, size * 0.3, size * 0.6);
+  ctx.fillStyle = "#444";
+  ctx.beginPath();
+  ctx.roundRect(-size * 0.65, -size * 0.15, size * 0.32, size * 0.6, 6);
+  ctx.fill();
 
   ctx.fillStyle = "#00ffd5";
   ctx.beginPath();
-  ctx.roundRect(-size * 0.35, -size * 0.1, size * 0.7, size * 0.9, 6);
+  ctx.roundRect(-size * 0.35, -size * 0.05, size * 0.7, size * 0.85, 8);
   ctx.fill();
 
-  ctx.fillStyle = "#eee";
+  const helmetGrad = ctx.createRadialGradient(
+    -size * 0.1, -size * 0.55, size * 0.1,
+    0, -size * 0.45, size * 0.5
+  );
+  helmetGrad.addColorStop(0, "#ffffff");
+  helmetGrad.addColorStop(1, "#dcdcdc");
+
+  ctx.fillStyle = helmetGrad;
   ctx.beginPath();
-  ctx.arc(0, -size * 0.4, size * 0.35, 0, Math.PI * 2);
+  ctx.arc(0, -size * 0.45, size * 0.42, 0, Math.PI * 2);
   ctx.fill();
 
-  ctx.fillStyle = "#222";
+  ctx.fillStyle = "#1a1a1a";
   ctx.beginPath();
-  ctx.arc(0.1 * size, -size * 0.45, size * 0.2, Math.PI * 0.2, Math.PI * 1.8);
+  ctx.arc(0.12 * size, -size * 0.48, size * 0.24, Math.PI * 0.15, Math.PI * 1.85);
   ctx.fill();
 
   ctx.restore();
@@ -212,7 +281,7 @@ function spawnObstacle() {
 // GAME LOOP
 // =====================================================
 function update() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  drawBackground();
 
   if (alive) {
     score += 0.02;
@@ -255,7 +324,7 @@ function update() {
     if (score >= levelTarget) nextLevel();
   }
 
-  // ---------- DRAW THRUSTER PARTICLES ----------
+  // Thrusters
   ctx.fillStyle = "#aaa";
   particles.forEach(p => {
     ctx.globalAlpha = p.life / 20;
@@ -267,18 +336,17 @@ function update() {
   ctx.globalAlpha = 1;
   particles = particles.filter(p => p.life > 0);
 
-  // ---------- DRAW PLAYER ----------
   drawAstronaut(player.x, player.y, player.r * 2, gravity === -1);
 
-  // ---------- DRAW WALLS ----------
+  // Walls
   ctx.fillStyle = "#222";
   for (let o of obstacles) {
     ctx.fillRect(o.x, 0, o.width, o.gapY);
     ctx.fillRect(o.x, o.gapY + o.gap, o.width, canvas.height);
   }
 
-  // ---------- UI ----------
-  ctx.fillStyle = "#888";
+  // UI
+  ctx.fillStyle = "#aaa";
   ctx.font = "16px monospace";
   ctx.fillText(`LEVEL ${level}`, 20, 24);
   ctx.fillText(`PROGRESS ${score.toFixed(1)} / ${levelTarget}`, 20, 44);

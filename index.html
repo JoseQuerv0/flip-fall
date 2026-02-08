@@ -32,17 +32,49 @@ resize();
 const AudioCtx = window.AudioContext || window.webkitAudioContext;
 const audioCtx = new AudioCtx();
 
-function playTone(freq, duration, type = "sine", volume = 0.05) {
-  const osc = audioCtx.createOscillator();
-  const gain = audioCtx.createGain();
-  osc.type = type;
-  osc.frequency.value = freq;
-  gain.gain.value = volume;
-  osc.connect(gain);
-  gain.connect(audioCtx.destination);
-  osc.start();
-  osc.stop(audioCtx.currentTime + duration);
+let musicOsc, musicGain, musicTimer = 0;
+
+function startMusic() {
+  if (musicOsc) return;
+
+  musicOsc = audioCtx.createOscillator();
+  musicGain = audioCtx.createGain();
+
+  musicOsc.type = "triangle";
+  musicOsc.frequency.value = 90;
+
+  musicGain.gain.value = 0.03;
+
+  musicOsc.connect(musicGain);
+  musicGain.connect(audioCtx.destination);
+  musicOsc.start();
 }
+
+function pulseMusic(speed) {
+  if (!musicGain) return;
+  musicGain.gain.setTargetAtTime(
+    0.015 + speed * 0.002,
+    audioCtx.currentTime,
+    0.1
+  );
+}
+
+function playTone(freq, dur, type="sine", vol=0.05) {
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = type;
+  o.frequency.value = freq;
+  g.gain.value = vol;
+  o.connect(g);
+  g.connect(audioCtx.destination);
+  o.start();
+  o.stop(audioCtx.currentTime + dur);
+}
+
+// ---------- LEVEL SYSTEM ----------
+let level = 1;
+let levelTarget = 30;
+let levelCompleteTimer = 0;
 
 // ---------- GAME STATE ----------
 let gravity = 1;
@@ -59,65 +91,49 @@ const player = {
   maxVy: 6
 };
 
-// ---------- COLORS ----------
-const colorUnlocks = [
-  { score: 0, color: "#00ffd5" },
-  { score: 20, color: "#ffd500" },
-  { score: 50, color: "#ff7a00" },
-  { score: 90, color: "#ff0044" },
-  { score: 140, color: "#9b5cff" }
-];
-
-let currentColor = colorUnlocks[0].color;
-
-// ---------- PARTICLES ----------
-let particles = [];
-
-function spawnThruster(x, y, dir) {
-  for (let i = 0; i < 6; i++) {
-    particles.push({
-      x,
-      y,
-      vx: (Math.random() - 0.5) * 1.5,
-      vy: dir * (2 + Math.random() * 1.5),
-      life: 20
-    });
-  }
-}
+let obstacles = [];
+let spawnTimer = 0;
 
 // ---------- INPUT ----------
 function flip() {
-  if (!alive) {
-    restart();
-    return;
-  }
+  audioCtx.resume();
+  startMusic();
+
+  if (!alive) restartLevel();
   gravity *= -1;
-  spawnThruster(player.x, player.y, gravity);
-  playTone(600, 0.05, "square", 0.04);
+  playTone(500, 0.05, "square", 0.03);
 }
 window.addEventListener("mousedown", flip);
 window.addEventListener("touchstart", e => {
   e.preventDefault();
-  audioCtx.resume();
   flip();
 }, { passive: false });
 
 // ---------- RESET ----------
-function restart() {
+function restartLevel() {
   gravity = 1;
-  worldSpeed = 2.0;
-  score = 0;
   alive = true;
+  score = 0;
   obstacleCount = 0;
   player.y = canvas.height / 2;
   player.vy = 0;
   obstacles = [];
   spawnTimer = 0;
-  currentColor = colorUnlocks[0].color;
+}
+
+// ---------- NEXT LEVEL ----------
+function nextLevel() {
+  level++;
+  levelTarget += 15;
+  worldSpeed += 0.4;
+  player.maxVy += 0.4;
+  levelCompleteTimer = 60;
+  playTone(900, 0.2, "triangle", 0.07);
+  restartLevel();
 }
 
 // ---------- ASTRONAUT ----------
-function drawAstronaut(x, y, size, flipped, color) {
+function drawAstronaut(x, y, size, flipped) {
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(flipped ? Math.PI : 0);
@@ -125,7 +141,7 @@ function drawAstronaut(x, y, size, flipped, color) {
   ctx.fillStyle = "#555";
   ctx.fillRect(-size * 0.6, -size * 0.2, size * 0.3, size * 0.6);
 
-  ctx.fillStyle = color;
+  ctx.fillStyle = "#00ffd5";
   ctx.beginPath();
   ctx.roundRect(-size * 0.35, -size * 0.1, size * 0.7, size * 0.9, 6);
   ctx.fill();
@@ -144,25 +160,16 @@ function drawAstronaut(x, y, size, flipped, color) {
 }
 
 // ---------- OBSTACLES ----------
-let obstacles = [];
-let spawnTimer = 0;
-
 function spawnObstacle() {
   obstacleCount++;
-
-  const gapSize = obstacleCount <= 3
-    ? canvas.height * 0.45
-    : Math.max(130, canvas.height * 0.35 - score * 3);
-
-  const gapY = obstacleCount <= 3
-    ? (canvas.height - gapSize) / 2
-    : Math.random() * (canvas.height - gapSize);
+  const gap = Math.max(130, canvas.height * 0.35 - level * 12);
+  const gapY = Math.random() * (canvas.height - gap);
 
   obstacles.push({
     x: canvas.width,
     width: canvas.width * 0.14,
     gapY,
-    gap: gapSize
+    gap
   });
 }
 
@@ -172,14 +179,7 @@ function update() {
 
   if (alive) {
     score += 0.02;
-    worldSpeed += 0.0002;
-
-    for (let c of colorUnlocks) {
-      if (score > c.score && currentColor !== c.color) {
-        currentColor = c.color;
-        playTone(900, 0.12, "triangle", 0.06);
-      }
-    }
+    pulseMusic(worldSpeed);
 
     player.vy += gravity * 0.45;
     player.vy = Math.max(-player.maxVy, Math.min(player.vy, player.maxVy));
@@ -202,7 +202,7 @@ function update() {
           player.y + player.r > o.gapY + o.gap
         ) {
           alive = false;
-          playTone(120, 0.25, "sawtooth", 0.08);
+          playTone(140, 0.3, "sawtooth", 0.07);
         }
       }
     }
@@ -211,30 +211,16 @@ function update() {
 
     if (player.y < -30 || player.y > canvas.height + 30) {
       alive = false;
-      playTone(120, 0.25, "sawtooth", 0.08);
+      playTone(140, 0.3, "sawtooth", 0.07);
+    }
+
+    if (score >= levelTarget) {
+      nextLevel();
     }
   }
 
-  // ---------- PARTICLES ----------
-  ctx.fillStyle = "#aaa";
-  particles.forEach(p => {
-    ctx.globalAlpha = p.life / 20;
-    ctx.fillRect(p.x, p.y, 2, 2);
-    p.x += p.vx;
-    p.y += p.vy;
-    p.life--;
-  });
-  ctx.globalAlpha = 1;
-  particles = particles.filter(p => p.life > 0);
-
   // ---------- DRAW ----------
-  drawAstronaut(
-    player.x,
-    player.y,
-    player.r * 2,
-    gravity === -1,
-    currentColor
-  );
+  drawAstronaut(player.x, player.y, player.r * 2, gravity === -1);
 
   ctx.fillStyle = "#222";
   for (let o of obstacles) {
@@ -244,13 +230,23 @@ function update() {
 
   ctx.fillStyle = "#888";
   ctx.font = "16px monospace";
-  ctx.fillText(`DISTANCE ${score.toFixed(1)}`, 20, 30);
+  ctx.fillText(`LEVEL ${level}`, 20, 24);
+  ctx.fillText(`PROGRESS ${score.toFixed(1)} / ${levelTarget}`, 20, 44);
 
   if (!alive) {
     ctx.fillStyle = "#fff";
-    ctx.font = "24px monospace";
+    ctx.font = "22px monospace";
     ctx.textAlign = "center";
-    ctx.fillText("TAP TO RESTART", canvas.width / 2, canvas.height / 2);
+    ctx.fillText("TAP TO RETRY LEVEL", canvas.width / 2, canvas.height / 2);
+    ctx.textAlign = "left";
+  }
+
+  if (levelCompleteTimer > 0) {
+    levelCompleteTimer--;
+    ctx.fillStyle = "#00ffd5";
+    ctx.font = "28px monospace";
+    ctx.textAlign = "center";
+    ctx.fillText("LEVEL COMPLETE", canvas.width / 2, canvas.height / 2);
     ctx.textAlign = "left";
   }
 

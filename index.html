@@ -18,6 +18,9 @@
 <canvas id="game"></canvas>
 
 <script>
+// =====================================================
+// CANVAS
+// =====================================================
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
@@ -29,12 +32,11 @@ window.addEventListener("resize", resize);
 resize();
 
 // =====================================================
-// AUDIO SYSTEM
+// AUDIO
 // =====================================================
 const AudioCtx = window.AudioContext || window.webkitAudioContext;
 const audioCtx = new AudioCtx();
 
-// --- MUSIC ---
 let musicBuffer = null;
 let musicSource = null;
 let musicGain = audioCtx.createGain();
@@ -43,26 +45,24 @@ musicGain.connect(audioCtx.destination);
 
 async function loadMusic() {
   const res = await fetch("space.mp3");
-  const arrayBuffer = await res.arrayBuffer();
-  musicBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+  const buf = await res.arrayBuffer();
+  musicBuffer = await audioCtx.decodeAudioData(buf);
 }
+loadMusic();
 
 function startMusic() {
   if (!musicBuffer || musicSource) return;
-
   musicSource = audioCtx.createBufferSource();
   musicSource.buffer = musicBuffer;
   musicSource.loop = true;
   musicSource.connect(musicGain);
-  musicSource.start(0);
+  musicSource.start();
 }
 
-function duckMusic(amount, time = 0.15) {
-  musicGain.gain.cancelScheduledValues(audioCtx.currentTime);
-  musicGain.gain.setTargetAtTime(amount, audioCtx.currentTime, time);
+function duckMusic(vol, t = 0.15) {
+  musicGain.gain.setTargetAtTime(vol, audioCtx.currentTime, t);
 }
 
-// --- SFX ---
 function playTone(freq, dur, type="sine", vol=0.05) {
   const o = audioCtx.createOscillator();
   const g = audioCtx.createGain();
@@ -75,24 +75,16 @@ function playTone(freq, dur, type="sine", vol=0.05) {
   o.stop(audioCtx.currentTime + dur);
 }
 
-// Preload music
-loadMusic();
-
-// =====================================================
-// LEVEL SYSTEM
-// =====================================================
-let level = 1;
-let levelTarget = 30;
-let levelCompleteTimer = 0;
-
 // =====================================================
 // GAME STATE
 // =====================================================
 let gravity = 1;
+let alive = true;
 let worldSpeed = 2.0;
 let score = 0;
-let alive = true;
-let obstacleCount = 0;
+let level = 1;
+let levelTarget = 30;
+let levelFlash = 0;
 let musicStarted = false;
 
 const player = {
@@ -105,6 +97,23 @@ const player = {
 
 let obstacles = [];
 let spawnTimer = 0;
+
+// =====================================================
+// THRUSTER PARTICLES (THIS IS THE IMPORTANT PART)
+// =====================================================
+let particles = [];
+
+function spawnThruster(x, y, dir) {
+  for (let i = 0; i < 8; i++) {
+    particles.push({
+      x,
+      y,
+      vx: (Math.random() - 0.5) * 1.4,
+      vy: dir * (2.5 + Math.random() * 1.5),
+      life: 20
+    });
+  }
+}
 
 // =====================================================
 // INPUT
@@ -124,8 +133,10 @@ function flip() {
   }
 
   gravity *= -1;
+  spawnThruster(player.x, player.y, gravity); // 🔥 THRUSTER HERE
   playTone(520, 0.05, "square", 0.03);
 }
+
 window.addEventListener("mousedown", flip);
 window.addEventListener("touchstart", e => {
   e.preventDefault();
@@ -133,13 +144,12 @@ window.addEventListener("touchstart", e => {
 }, { passive: false });
 
 // =====================================================
-// RESET / LEVEL FLOW
+// LEVEL FLOW
 // =====================================================
 function restartLevel() {
   gravity = 1;
   alive = true;
   score = 0;
-  obstacleCount = 0;
   player.y = canvas.height / 2;
   player.vy = 0;
   obstacles = [];
@@ -149,10 +159,10 @@ function restartLevel() {
 function nextLevel() {
   level++;
   levelTarget += 15;
-  worldSpeed += 0.4;
-  player.maxVy += 0.4;
-  levelCompleteTimer = 60;
-  playTone(900, 0.2, "triangle", 0.06);
+  worldSpeed += 0.35;
+  player.maxVy += 0.3;
+  levelFlash = 60;
+  playTone(900, 0.2, "triangle", 0.07);
   restartLevel();
 }
 
@@ -189,14 +199,11 @@ function drawAstronaut(x, y, size, flipped) {
 // OBSTACLES
 // =====================================================
 function spawnObstacle() {
-  obstacleCount++;
   const gap = Math.max(130, canvas.height * 0.35 - level * 12);
-  const gapY = Math.random() * (canvas.height - gap);
-
   obstacles.push({
     x: canvas.width,
     width: canvas.width * 0.14,
-    gapY,
+    gapY: Math.random() * (canvas.height - gap),
     gap
   });
 }
@@ -245,20 +252,32 @@ function update() {
       duckMusic(0.08);
     }
 
-    if (score >= levelTarget) {
-      nextLevel();
-    }
+    if (score >= levelTarget) nextLevel();
   }
 
-  // DRAW
+  // ---------- DRAW THRUSTER PARTICLES ----------
+  ctx.fillStyle = "#aaa";
+  particles.forEach(p => {
+    ctx.globalAlpha = p.life / 20;
+    ctx.fillRect(p.x, p.y, 2, 2);
+    p.x += p.vx;
+    p.y += p.vy;
+    p.life--;
+  });
+  ctx.globalAlpha = 1;
+  particles = particles.filter(p => p.life > 0);
+
+  // ---------- DRAW PLAYER ----------
   drawAstronaut(player.x, player.y, player.r * 2, gravity === -1);
 
+  // ---------- DRAW WALLS ----------
   ctx.fillStyle = "#222";
   for (let o of obstacles) {
     ctx.fillRect(o.x, 0, o.width, o.gapY);
     ctx.fillRect(o.x, o.gapY + o.gap, o.width, canvas.height);
   }
 
+  // ---------- UI ----------
   ctx.fillStyle = "#888";
   ctx.font = "16px monospace";
   ctx.fillText(`LEVEL ${level}`, 20, 24);
@@ -272,8 +291,8 @@ function update() {
     ctx.textAlign = "left";
   }
 
-  if (levelCompleteTimer > 0) {
-    levelCompleteTimer--;
+  if (levelFlash > 0) {
+    levelFlash--;
     ctx.fillStyle = "#00ffd5";
     ctx.font = "28px monospace";
     ctx.textAlign = "center";

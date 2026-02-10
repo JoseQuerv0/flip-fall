@@ -31,29 +31,47 @@ function resize(){
 addEventListener("resize", resize);
 resize();
 
-  
-  let tapX = null, tapY = null;
+// =====================================================
+// TAP INPUT
+// =====================================================
+let tapX=null, tapY=null;
+let spX=0, spY=0, spW=0, spH=0;
 
-canvas.addEventListener("touchstart", e => {
-  const t = e.touches[0];
-  tapX = t.clientX;
-  tapY = t.clientY;
-}, { passive:false });
+canvas.addEventListener("touchstart", e=>{
+  const t=e.touches[0];
+  tapX=t.clientX;
+  tapY=t.clientY;
 
-canvas.addEventListener("mousedown", e => {
-  tapX = e.clientX;
-  tapY = e.clientY;
+  if(
+    tapX>=spX && tapX<=spX+spW &&
+    tapY>=spY && tapY<=spY+spH
+  ){
+    e.preventDefault();
+    return;
+  }
+
+  if(state==="playing"){
+    e.preventDefault();
+    flip();
+  }
+},{ passive:false });
+
+canvas.addEventListener("mousedown", e=>{
+  tapX=e.clientX;
+  tapY=e.clientY;
+  if(state==="playing") flip();
 });
 
 function consumeTap(x,y,w,h){
   if(tapX!==null &&
      tapX>=x && tapX<=x+w &&
      tapY>=y && tapY<=y+h){
-    tapX = tapY = null;
+    tapX=tapY=null;
     return true;
   }
   return false;
 }
+
 // =====================================================
 // AUDIO
 // =====================================================
@@ -100,11 +118,11 @@ function haptic(ms=20){
 // DATA
 // =====================================================
 const BIOMES=[
-  { sky:["#14173a","#2c3172"], plant:0, structure:"#2b315f" },
-  { sky:["#2a0e1f","#6a2a4a"], plant:1, structure:"#532334" },
-  { sky:["#0a2633","#1e8fa6"], plant:2, structure:"#10495b" },
-  { sky:["#2b200b","#9a6b26"], plant:3, structure:"#5f4214" },
-  { sky:["#120b26","#4b3cb3"], plant:4, structure:"#2a2266" }
+  { sky:["#14173a","#2c3172"], structure:"#2b315f" },
+  { sky:["#2a0e1f","#6a2a4a"], structure:"#532334" },
+  { sky:["#0a2633","#1e8fa6"], structure:"#10495b" },
+  { sky:["#2b200b","#9a6b26"], structure:"#5f4214" },
+  { sky:["#120b26","#4b3cb3"], structure:"#2a2266" }
 ];
 const SUIT_COLORS=[
   "#00ffd5","#ff9ad5","#ffd966",
@@ -114,88 +132,116 @@ const SUIT_COLORS=[
 // =====================================================
 // STATE
 // =====================================================
-let state="title"; // title | playing | recap | customize
+let state="title";
 let mode=null;
 
-let gravity=1, alive=true;
-let level=1, score=0, displayScore=0;
-let levelTarget=24;
-let worldSpeed=2;
+let gravity=1;
+let alive=true;
+let level=1;
 let lives=5;
+let flips=0;
+
+let worldSpeed=2;
+let levelDistance=0;
+let levelTarget=1800;
 
 let deathTimer=0;
-let shakeTime=0, shakeMag=0;
-let flash=0;
-let levelPulse=0;
+  
+ let suitIndex = 0;
+
 
 // run stats
-let flips=0;
 let runStartTime=0;
 let runDuration=0;
-let unlocksThisRun=0;
+let deathsThisRun=0;
+let bombsUsed=0;
 
-// persistence
-let upgrades={ glow:0, flame:0, particles:0, sparks:false };
-let cosmetic={ colorIndex:0, glow:0 };
+// bombs / jetpack
+let hasBomb=false;
+let bombsLeft=0;
+let bombCooldown=0;
 
-function loadProgress(){
-  const u=localStorage.getItem("flipfall_upgrades");
-  if(u) upgrades=JSON.parse(u);
-  const c=localStorage.getItem("flipfall_cosmetic");
-  if(c) cosmetic=JSON.parse(c);
-}
-function saveProgress(){
-  localStorage.setItem("flipfall_upgrades",JSON.stringify(upgrades));
-  localStorage.setItem("flipfall_cosmetic",JSON.stringify(cosmetic));
-}
+let hasJetpack=false;
+let jetFuel=0;
+let jetActive=false;
+
+const JET_THRUST=0.9;
+const JET_DRAIN=1;
 
 // =====================================================
 // PLAYER
 // =====================================================
 const player={ x:0,y:0,vy:0,r:12,maxVy:6 };
 let obstacles=[], spawnTimer=0, particles=[];
-let stars=[...Array(60)].map(()=>({
-  x:Math.random()*canvas.width,
-  y:Math.random()*canvas.height,
-  s:Math.random()*1.5+0.5
-}));
 
 // =====================================================
 // HELPERS
 // =====================================================
 const biome=()=>BIOMES[(level-1)%BIOMES.length];
-const suitColor=()=>SUIT_COLORS[cosmetic.colorIndex];
-const structureTier=()=>Math.floor((level-1)/2)%3;
+const suitColor=()=>SUIT_COLORS[suitIndex];
 
 // =====================================================
 // INPUT
 // =====================================================
 function flip(){
-  if(state!=="playing"||!alive) return;
+  if(state!=="playing"||!alive||jetActive) return;
   audioCtx.resume();
   startMusic();
   gravity*=-1;
   flips++;
-  spawnThruster(player.x-18,player.y,gravity,suitColor());
+  spawnThruster(player.x-18,player.y+gravity*14,gravity,suitColor());
   playTone(520,0.05,"square",0.03);
 }
-canvas.addEventListener("touchstart",e=>{
-  if(state==="playing"){ e.preventDefault(); flip(); }
-},{passive:false});
-canvas.addEventListener("mousedown",()=>{ if(state==="playing") flip(); });
+
+// =====================================================
+// SPECIAL ACTION
+// =====================================================
+function useSpecial(){
+  if(!alive||state!=="playing") return;
+
+  if(hasBomb && bombsLeft>0 && bombCooldown<=0){
+    const idx=obstacles.findIndex(o=>o.x+o.width>player.x);
+    if(idx!==-1){
+      const o=obstacles[idx];
+      spawnExplosion(o.x+o.width/2,o.gapY+o.gap/2,biome().structure);
+      obstacles.splice(idx,1);
+      bombsLeft--;
+      bombsUsed++;
+      bombCooldown=40;
+      playTone(180,0.3,"square",0.07);
+      haptic(25);
+      return;
+    }
+  }
+
+  if(hasJetpack && jetFuel>0){
+    jetActive=!jetActive;
+    playTone(720,0.15,"triangle",0.05);
+  }
+}
 
 // =====================================================
 // PARTICLES
 // =====================================================
 function spawnThruster(x,y,d,c){
-  const count=10+upgrades.particles*6;
-  for(let i=0;i<count;i++){
+  for(let i=0;i<16;i++){
     particles.push({
       x,y,
-      vx:(Math.random()-0.5)*1.8,
-      vy:d*(3+Math.random()*2)*(1+upgrades.flame*0.3),
-      life:24,
+      vx:(Math.random()-0.5)*2,
+      vy:d*(3+Math.random()*2),
+      life:28,
       color:c
+    });
+  }
+}
+function spawnExplosion(x,y,color){
+  for(let i=0;i<40;i++){
+    particles.push({
+      x,y,
+      vx:(Math.random()-0.5)*6,
+      vy:(Math.random()-0.5)*6,
+      life:40,
+      color
     });
   }
 }
@@ -206,48 +252,55 @@ function spawnThruster(x,y,d,c){
 function restart(){
   alive=true;
   gravity=1;
-  player.x=canvas.width*0.35;
-  player.y=canvas.height/2;
   player.vy=0;
   obstacles=[];
   spawnTimer=0;
-  deathTimer=0;
+  jetActive=false;
+  player.x=canvas.width*0.35;
+  player.y=canvas.height/2;
 }
+
 function unlockUpgrade(){
-  if(mode==="zen") return;
-  unlocksThisRun++;
-  if(upgrades.glow<3) upgrades.glow++;
-  else if(upgrades.flame<2) upgrades.flame++;
-  else if(upgrades.particles<2) upgrades.particles++;
-  else upgrades.sparks=true;
-  saveProgress();
+  if(level===3){ hasBomb=true; bombsLeft=5; }
+  if(level===5){ hasJetpack=true; jetFuel=300; }
 }
+
 function handleDeath(){
-  if(mode==="zen") return;
+  if(!alive) return;
+
+  deathsThisRun++;
   lives--;
   alive=false;
   deathTimer=30;
-  score=0;
-  flash=1;
-  shakeTime=14; shakeMag=4;
-  haptic(30);
   playTone(140,0.25,"sine",0.06);
+  haptic(30);
+
   if(lives<=0){
-    runDuration=Math.floor((performance.now()-runStartTime)/1000);
-    stopMusic();
-    state="recap";
-  }
+  runDuration = Math.floor((performance.now()-runStartTime)/1000);
+  stopMusic();
+  tapX = tapY = null;   // ← ADD THIS
+  state="recap";
 }
+}
+
 function restartRun(){
   state="playing";
-  level=1; score=0; displayScore=0; lives=5;
-  flips=0; unlocksThisRun=0;
+  level=1;
+  lives=5;
+  flips=0;
+  deathsThisRun=0;
+  bombsUsed=0;
   runStartTime=performance.now();
+  hasBomb=false;
+  hasJetpack=false;
+  bombsLeft=0;
+  jetFuel=0;
+  levelDistance=0;
   restart();
 }
 
 // =====================================================
-// DRAWING
+// BACKGROUND
 // =====================================================
 function drawBackground(){
   const b=biome();
@@ -256,55 +309,45 @@ function drawBackground(){
   g.addColorStop(1,b.sky[1]);
   ctx.fillStyle=g;
   ctx.fillRect(0,0,canvas.width,canvas.height);
-
-  // stars
-  ctx.fillStyle="#fff";
-  stars.forEach(s=>{
-    s.x-=s.s*0.1;
-    if(s.x<0) s.x=canvas.width;
-    ctx.globalAlpha=0.4;
-    ctx.fillRect(s.x,s.y,s.s,s.s);
-  });
-  ctx.globalAlpha=1;
 }
 
-function drawAstronaut(){
-  const c=suitColor();
-  const scale=1+levelPulse*0.15;
-  if(cosmetic.glow){
-    ctx.shadowColor=c;
-    ctx.shadowBlur=18+cosmetic.glow*10;
+function drawRuins(){
+  const b=biome();
+  ctx.fillStyle=b.structure+"88";
+  for(let i=0;i<8;i++){
+    const x=i*240-(levelDistance*0.3)%240;
+    const h=80+Math.sin(i+level)*40;
+    ctx.fillRect(x,canvas.height-h,120,h);
   }
+}
+
+// =====================================================
+// DRAWING
+// =====================================================
+function drawAstronaut(){
   ctx.save();
   ctx.translate(player.x,player.y);
-  ctx.scale(scale,scale);
   ctx.rotate(gravity===-1?Math.PI:0);
-
   ctx.fillStyle="#444";
   ctx.fillRect(-28,-18,14,36);
-
-  ctx.fillStyle=c;
+  ctx.fillStyle=suitColor();
   ctx.fillRect(-7,-3,14,20);
-
   ctx.fillStyle="#eee";
   ctx.beginPath();
   ctx.arc(0,-14,11,0,Math.PI*2);
   ctx.fill();
-
   ctx.fillStyle="#111";
   ctx.beginPath();
   ctx.ellipse(2,-14,6,4,0,0,Math.PI*2);
   ctx.fill();
-
   ctx.restore();
-  ctx.shadowBlur=0;
 }
 
 // =====================================================
 // OBSTACLES
 // =====================================================
 function spawnObstacle(){
-  const gap=Math.max(130,canvas.height*0.35-level*12);
+  const gap=Math.max(130,canvas.height*0.35-level*10);
   obstacles.push({
     x:canvas.width,
     width:canvas.width*0.14,
@@ -313,169 +356,48 @@ function spawnObstacle(){
   });
 }
 
-  function drawTitle(){
-  ctx.fillStyle="#000c";
-  ctx.fillRect(0,0,canvas.width,canvas.height);
-
+// =====================================================
+// UI BUTTON
+// =====================================================
+function drawButtons(){
+  const size=72;
+  const x=20;
+  const y=canvas.height-size-20;
+  spX=x; spY=y; spW=size; spH=size;
+  ctx.globalAlpha=0.35;
   ctx.fillStyle="#fff";
-  ctx.textAlign="center";
-  ctx.font="28px monospace";
-  ctx.fillText("FLIP // FALL",canvas.width/2,canvas.height*0.25);
-
-  ctx.font="20px monospace";
-
-  const buttons = [
-    { label:"ZEN",       y:0.45, action:()=>{ mode="zen"; restartRun(); } },
-    { label:"STANDARD",  y:0.55, action:()=>{ mode="standard"; loadProgress(); restartRun(); } },
-    { label:"CLASSIC",   y:0.65, action:()=>{ mode="classic"; loadProgress(); restartRun(); } },
-    { label:"CUSTOMIZE", y:0.75, action:()=>{ loadProgress(); state="customize"; } }
-  ];
-
-  buttons.forEach(b=>{
-    const w = 260, h = 52;
-    const x = canvas.width/2 - w/2;
-    const y = canvas.height*b.y - h/2;
-
-    ctx.fillStyle="#222";
-    ctx.fillRect(x,y,w,h);
-    ctx.strokeStyle="#666";
-    ctx.strokeRect(x,y,w,h);
-
-    ctx.fillStyle="#fff";
-    ctx.fillText(b.label, canvas.width/2, y+34);
-
-    if(consumeTap(x,y,w,h)){
-      haptic(20);
-      playTone(600,0.08,"triangle",0.04);
-      b.action();
-    }
-  });
-}
-
-function drawRecap(){
-  ctx.fillStyle="#000c";
-  ctx.fillRect(0,0,canvas.width,canvas.height);
-  ctx.fillStyle="#fff";
-  ctx.textAlign="center";
-  ctx.font="30px monospace";
-  ctx.fillText("RUN COMPLETE",canvas.width/2,canvas.height*0.25);
-  ctx.font="18px monospace";
-  ctx.fillText(`LEVEL ${level}`,canvas.width/2,canvas.height*0.35);
-  ctx.fillText(`FLIPS ${flips}`,canvas.width/2,canvas.height*0.4);
-  ctx.fillText(`TIME ${runDuration}s`,canvas.width/2,canvas.height*0.45);
-  ctx.fillText(`UNLOCKS ${unlocksThisRun}`,canvas.width/2,canvas.height*0.5);
-  ctx.fillText("RESTART",canvas.width/2,canvas.height*0.62);
-  ctx.fillText("CUSTOMIZE",canvas.width/2,canvas.height*0.7);
-}
-
-function drawCustomize(){
+  ctx.fillRect(x,y,size,size);
+  ctx.globalAlpha=1;
   ctx.fillStyle="#000";
-  ctx.fillRect(0,0,canvas.width,canvas.height);
-
-  ctx.fillStyle="#fff";
-  ctx.textAlign="center";
-  ctx.font="26px monospace";
-  ctx.fillText("CUSTOMIZE",canvas.width/2,canvas.height*0.18);
-
-  // preview astronaut
-  drawAstronaut(canvas.width/2,canvas.height*0.42);
-
-  ctx.font="18px monospace";
-
-  // COLOR
-  ctx.fillText("COLOR",canvas.width/2,canvas.height*0.6);
-
-  const cw=60,ch=40;
-  const cy=canvas.height*0.64;
-
-  // color left
-  if(consumeTap(canvas.width*0.3-cw/2,cy-ch/2,cw,ch)){
-    if(cosmetic.colorIndex>0){
-      cosmetic.colorIndex--;
-      saveProgress();
-      playTone(480,0.05,"square",0.03);
-    }
-  }
-  ctx.fillText("◀",canvas.width*0.3,cy+10);
-
-  // color right
-  if(consumeTap(canvas.width*0.7-cw/2,cy-ch/2,cw,ch)){
-    if(cosmetic.colorIndex < SUIT_COLORS.length-1 &&
-       cosmetic.colorIndex <= upgrades.glow){
-      cosmetic.colorIndex++;
-      saveProgress();
-      playTone(520,0.05,"square",0.03);
-    }
-  }
-  ctx.fillText("▶",canvas.width*0.7,cy+10);
-
-  // GLOW
-  ctx.fillText("GLOW",canvas.width/2,canvas.height*0.72);
-  const gy=canvas.height*0.76;
-
-  if(consumeTap(canvas.width*0.3-cw/2,gy-ch/2,cw,ch)){
-    if(cosmetic.glow>0){
-      cosmetic.glow--;
-      saveProgress();
-      playTone(480,0.05,"square",0.03);
-    }
-  }
-  ctx.fillText("◀",canvas.width*0.3,gy+10);
-
-  if(consumeTap(canvas.width*0.7-cw/2,gy-ch/2,cw,ch)){
-    if(cosmetic.glow < upgrades.glow){
-      cosmetic.glow++;
-      saveProgress();
-      playTone(520,0.05,"square",0.03);
-    }
-  }
-  ctx.fillText("▶",canvas.width*0.7,gy+10);
-
-  // BACK
-  const bw=200,bh=48;
-  const bx=canvas.width/2-bw/2;
-  const by=canvas.height*0.88-bh/2;
-
-  ctx.fillStyle="#222";
-  ctx.fillRect(bx,by,bw,bh);
-  ctx.strokeStyle="#666";
-  ctx.strokeRect(bx,by,bw,bh);
-  ctx.fillStyle="#fff";
-  ctx.fillText("BACK",canvas.width/2,by+32);
-
-  if(consumeTap(bx,by,bw,bh)){
-    playTone(600,0.08,"triangle",0.04);
-    state="title";
-  }
+  ctx.font="16px monospace";
+  ctx.fillText("SP",x+20,y+46);
+  if(consumeTap(x,y,size,size)) useSpecial();
 }
-  
+
 // =====================================================
 // MAIN LOOP
 // =====================================================
 function update(){
-  let ox=0,oy=0;
-  if(shakeTime>0){
-    shakeTime--;
-    ox=(Math.random()-0.5)*shakeMag;
-    oy=(Math.random()-0.5)*shakeMag;
-  }
-
-  ctx.save();
-  ctx.translate(ox,oy);
-
   if(state==="playing"){
     drawBackground();
+    drawRuins();
 
     if(alive){
-      score+=mode==="zen"?0.035:0.025;
-      displayScore+= (score-displayScore)*0.08;
+      levelDistance+=worldSpeed;
 
-      player.vy+=gravity*0.45;
+      if(jetActive && jetFuel>0){
+        player.vy-=gravity*JET_THRUST;
+        jetFuel-=JET_DRAIN;
+        if(jetFuel<=0) jetActive=false;
+      } else {
+        player.vy+=gravity*0.45;
+      }
+
       player.vy=Math.max(-player.maxVy,Math.min(player.vy,player.maxVy));
       player.y+=player.vy;
 
       spawnTimer+=worldSpeed;
-      if(spawnTimer>200){ spawnObstacle(); spawnTimer=0; }
+      if(spawnTimer>260){ spawnObstacle(); spawnTimer=0; }
 
       for(const o of obstacles){
         o.x-=worldSpeed;
@@ -484,73 +406,157 @@ function update(){
           player.x-player.r<o.x+o.width &&
           (player.y-player.r<o.gapY || player.y+player.r>o.gapY+o.gap)
         ){
-          handleDeath(); break;
+          handleDeath();
+          break;
         }
       }
+
       obstacles=obstacles.filter(o=>o.x+o.width>0);
 
-      if(score>=levelTarget){
-        level++;
-        score=0;
-        levelPulse=1;
-        unlockUpgrade();
-        playTone(880,0.1,"triangle",0.04);
+      if(levelDistance>=levelTarget){
+  level++;
+  levelTarget=1800+level*300;
+  levelDistance = 0;   // ← REQUIRED
+  unlockUpgrade();
+  restart();
+}
+
+    }
+
+    // 🔧 POST-DEATH RECOVERY (RESTORED)
+    if(!alive && deathTimer > 0){
+      deathTimer--;
+      if(deathTimer === 0 && lives > 0){
         restart();
       }
     }
 
-    if(levelPulse>0) levelPulse*=0.9;
-    if(!alive && deathTimer>0){
-      deathTimer--;
-      if(deathTimer===0) restart();
-    }
-
+    // PARTICLES
     particles.forEach(p=>{
-      ctx.globalAlpha=p.life/24;
+      ctx.globalAlpha=p.life/28;
       ctx.fillStyle=p.color;
       ctx.fillRect(p.x,p.y,2,2);
-      p.x+=p.vx; p.y+=p.vy; p.life--;
+      p.x+=p.vx;
+      p.y+=p.vy;
+      p.life--;
     });
     ctx.globalAlpha=1;
     particles=particles.filter(p=>p.life>0);
 
     drawAstronaut();
+    drawButtons();
 
     ctx.fillStyle="#2a2a2a";
     obstacles.forEach(o=>{
       ctx.fillRect(o.x,0,o.width,o.gapY);
       ctx.fillRect(o.x,o.gapY+o.gap,o.width,canvas.height);
     });
-  }
 
-  ctx.restore();
-
-  if(flash>0){
-    ctx.fillStyle=`rgba(255,255,255,${flash})`;
-    ctx.fillRect(0,0,canvas.width,canvas.height);
-    flash*=0.85;
-  }
-
-  if(state==="playing"){
     ctx.fillStyle="#eee";
     ctx.font="16px monospace";
     ctx.fillText(`LEVEL ${level}`,20,24);
-    ctx.fillStyle="#333";
-    ctx.fillRect(20,36,120,6);
-    ctx.fillStyle="#7f7";
-    ctx.fillRect(20,36,(displayScore/levelTarget)*120,6);
-    ctx.fillText(`LIVES ${lives}`,20,56);
+    ctx.fillText(`LIVES ${lives}`,20,44);
+    if(hasBomb) ctx.fillText(`BOMBS ${bombsLeft}`,20,64);
+    if(hasJetpack) ctx.fillText(`FUEL ${jetFuel}`,20,84);
   }
 
   if(state==="title") drawTitle();
-if(state==="recap") drawRecap();
-if(state==="customize") drawCustomize();
+  if(state==="recap") drawRecap();
 
-requestAnimationFrame(update);
+  if(bombCooldown>0) bombCooldown--;
+  requestAnimationFrame(update);
+}
+
+// =====================================================
+// TITLE / RECAP
+// =====================================================
+function drawTitle(){
+  ctx.fillStyle="#000c";
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle="#fff";
+  ctx.textAlign="center";
+  ctx.font="28px monospace";
+  ctx.fillText("FLIP // FALL",canvas.width/2,canvas.height*0.25);
+  ctx.font="20px monospace";
+  
+  // COLOR SELECT (BOTTOM CENTER)
+ctx.font = "16px monospace";
+ctx.textAlign = "center";
+
+const cy = canvas.height * 0.82;
+const cx = canvas.width / 2;
+
+// label
+ctx.fillStyle = "#fff";
+ctx.fillText("SUIT COLOR", cx, cy - 28);
+
+// left arrow
+const cw = 40, ch = 40;
+if(consumeTap(cx - 90, cy - ch/2, cw, ch)){
+  suitIndex = (suitIndex - 1 + SUIT_COLORS.length) % SUIT_COLORS.length;
+  playTone(420,0.05,"square",0.03);
+}
+ctx.fillText("◀", cx - 90, cy + 10);
+
+// right arrow
+if(consumeTap(cx + 50, cy - ch/2, cw, ch)){
+  suitIndex = (suitIndex + 1) % SUIT_COLORS.length;
+  playTone(520,0.05,"square",0.03);
+}
+ctx.fillText("▶", cx + 50, cy + 10);
+
+// color preview
+ctx.fillStyle = SUIT_COLORS[suitIndex];
+ctx.fillRect(cx - 15, cy - 15, 30, 30);
+
+// reset alignment (important)
+ctx.textAlign = "center";
+
+
+
+  const buttons=[
+    {label:"ZEN",y:0.45,action:()=>{mode="zen";restartRun();}},
+    {label:"STANDARD",y:0.55,action:()=>{mode="standard";restartRun();}},
+    {label:"CLASSIC",y:0.65,action:()=>{mode="classic";restartRun();}}
+  ];
+
+  buttons.forEach(b=>{
+    const w=260,h=52;
+    const x=canvas.width/2-w/2;
+    const y=canvas.height*b.y-h/2;
+    ctx.fillStyle="#222";
+    ctx.fillRect(x,y,w,h);
+    ctx.strokeStyle="#666";
+    ctx.strokeRect(x,y,w,h);
+    ctx.fillStyle="#fff";
+    ctx.fillText(b.label,canvas.width/2,y+34);
+    if(consumeTap(x,y,w,h)) b.action();
+  });
+}
+
+function drawRecap(){
+  ctx.fillStyle="#000c";
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle="#fff";
+  ctx.textAlign="center";
+  ctx.font="26px monospace";
+  ctx.fillText("RUN COMPLETE",canvas.width/2,canvas.height*0.22);
+  ctx.font="18px monospace";
+  ctx.fillText(`LEVELS ${level-1}`,canvas.width/2,canvas.height*0.32);
+  ctx.fillText(`FLIPS ${flips}`,canvas.width/2,canvas.height*0.38);
+  ctx.fillText(`TIME ${runDuration}s`,canvas.width/2,canvas.height*0.44);
+  ctx.fillText(`DEATHS ${deathsThisRun}`,canvas.width/2,canvas.height*0.50);
+  ctx.fillText(`BOMBS USED ${bombsUsed}`,canvas.width/2,canvas.height*0.56);
+  ctx.font="20px monospace";
+  ctx.fillText("TAP TO RESTART",canvas.width/2,canvas.height*0.7);
+  if(tapX!==null){
+  tapX = tapY = null;
+  restartRun();
+}
+
 }
 
 // INIT
-restart();
 update();
 </script>
 </body>
